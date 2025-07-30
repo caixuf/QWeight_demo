@@ -16,6 +16,9 @@
 #include <QLabel>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QTimer>
+#include <QQueue>
+#include <QMutex>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -23,6 +26,10 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
+
+signals:
+    // 批量添加路径结果的信号
+    void batchAddResults(const QVector<PathResult>& results);
 
 private slots:
     // 网格操作
@@ -48,6 +55,12 @@ private slots:
     void onResultSelectionChanged(const PathResult& result);
     void onDeleteSelectedResults();
     void onExportResults();
+    
+    // 批量添加路径结果的槽函数
+    void onBatchAddResults(const QVector<PathResult>& results);
+    
+    // 队列处理槽函数
+    void processBatchQueue();
     
     // 历史记录操作
     void onOpenXmlFile();
@@ -77,6 +90,17 @@ private:
     QVector<QPoint> calculateDijkstraPath(const QPoint& start, const QPoint& end);
     QVector<QPoint> calculateBFSPath(const QPoint& start, const QPoint& end);
     QVector<QPoint> calculateDFSPath(const QPoint& start, const QPoint& end);
+    
+    // DFS回溯算法相关方法
+    QVector<QVector<QPoint>> findAllDFSPaths(const QPoint& start, const QPoint& end);
+    void dfsBacktrack(const QPoint& current, const QPoint& end, QVector<QPoint>& currentPath, 
+                      QSet<QPoint>& visited, QVector<QVector<QPoint>>& allPaths, int maxDepth = 50);
+    void calculateAllDFSPathsProgressive(const QPoint& start, const QPoint& end, AlgorithmType algorithm);
+    void dfsBacktrackProgressive(const QPoint& current, const QPoint& end, QVector<QPoint>& currentPath, 
+                                QSet<QPoint>& visited, AlgorithmType algorithm, const QPoint& startPoint, int maxDepth = 100);
+    bool isValidMove(const QPoint& from, const QPoint& to);
+    QVector<QPoint> getNeighbors(const QPoint& point);
+    
     QString getAlgorithmName(AlgorithmType algorithm);
     
     // UI组件
@@ -122,6 +146,13 @@ private:
     // 计算控制
     bool m_isCalculating;
     bool m_shouldStopCalculation;
+    int m_totalPathCount;  // 总路径计数器
+    static const int MAX_PATHS = 1000;  // 哈密顿路径数量限制
+    
+    // 批量处理队列系统
+    QQueue<PathResult> m_pathQueue;  // 路径结果队列
+    QMutex m_queueMutex;  // 队列访问锁
+    QTimer* m_batchTimer;  // 批量处理定时器
 };
 
 #endif // MAINWINDOW_H

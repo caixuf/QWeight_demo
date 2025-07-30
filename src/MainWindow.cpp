@@ -7,6 +7,8 @@
 #include <QStandardPaths>
 #include <QTime>
 #include <QThread>
+#include <QSet>
+#include <algorithm>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -16,12 +18,18 @@ MainWindow::MainWindow(QWidget* parent)
     , m_currentEndPoint(-1, -1)
     , m_isCalculating(false)
     , m_shouldStopCalculation(false)
+    , m_totalPathCount(0)
 {
     qDebug() << "MainWindow构造函数开始...";
     
     try {
         qDebug() << "设置UI...";
         setupUI();
+        
+        qDebug() << "初始化批量处理定时器...";
+        m_batchTimer = new QTimer(this);
+        m_batchTimer->setInterval(500); // 每500ms处理一次队列，减少UI压力
+        connect(m_batchTimer, &QTimer::timeout, this, &MainWindow::processBatchQueue);
         
         qDebug() << "设置连接...";
         setupConnections();
@@ -195,6 +203,10 @@ void MainWindow::setupConnections() {
                     this, &MainWindow::onResultDoubleClicked);
         }
         
+        // 批量结果信号连接
+        connect(this, &MainWindow::batchAddResults,
+                this, &MainWindow::onBatchAddResults);
+        
         qDebug() << "setupConnections 完成";
     } catch (const std::exception& e) {
         qDebug() << "setupConnections 异常:" << e.what();
@@ -333,6 +345,8 @@ void MainWindow::onSetEndPointMode() {
 }
 
 void MainWindow::onStartCalculation() {
+    qDebug() << "onStartCalculation 开始...";
+    
     // 检查起点终点是否设置
     if (!m_gridView->hasStartPoint() || !m_gridView->hasEndPoint()) {
         QMessageBox::warning(this, "警告", "请先设置起点和终点！");
@@ -340,11 +354,14 @@ void MainWindow::onStartCalculation() {
     }
     
     if (m_isCalculating) {
+        qDebug() << "已经在计算中，返回";
         return; // 已经在计算中
     }
     
+    qDebug() << "设置计算状态...";
     m_isCalculating = true;
     m_shouldStopCalculation = false;
+    m_totalPathCount = 0;  // 重置路径计数器
     m_calculationState = CalculationState::Running;
     m_controlPanel->setCalculationState(m_calculationState);
     showCalculationProgress(true);
@@ -352,22 +369,54 @@ void MainWindow::onStartCalculation() {
     // 获取起点和终点
     QPoint start = m_gridView->getStartPoint();
     QPoint end = m_gridView->getEndPoint();
+    qDebug() << "起点:" << start << "终点:" << end;
     
     // 获取当前网格大小信息用于显示
     int gridWidth = m_gridView->gridWidth();
     int gridHeight = m_gridView->gridHeight();
+    qDebug() << "网格大小:" << gridWidth << "x" << gridHeight;
     
     // 清空之前的结果
+    qDebug() << "清空之前的结果...";
     m_resultList->clearResults();
     m_gridView->clearPath();
     
     // 获取用户选择的算法
     AlgorithmType selectedAlgorithm = m_controlPanel->getSelectedAlgorithm();
     QString algorithmName = getAlgorithmName(selectedAlgorithm);
+    qDebug() << "选择的算法:" << algorithmName;
     
     updateStatusMessage(QString("正在计算 %1 算法的所有可能路径...").arg(algorithmName));
     
-    // 计算该算法的多条可能路径
+    // 特殊处理DFS算法：使用渐进式计算搜索哈密顿路径
+    if (selectedAlgorithm == AlgorithmType::DFS) {
+        qDebug() << "=== 准备开始哈密顿路径搜索 ===";
+        qDebug() << "起点:" << start << "终点:" << end;
+        qDebug() << "网格大小:" << gridWidth << "x" << gridHeight << "总点数:" << (gridWidth * gridHeight);
+        updateStatusMessage(QString("开始搜索哈密顿路径（经过所有 %1 个点），将实时显示找到的路径...").arg(gridWidth * gridHeight));
+        
+        // DFS算法会直接在计算过程中添加结果到表格
+        calculateAllDFSPathsProgressive(start, end, selectedAlgorithm);
+        qDebug() << "=== 哈密顿路径搜索完成! ===";
+        
+        // DFS计算完成
+        int pathCount = m_resultList->getAllResults().size();
+        updateStatusMessage(QString("哈密顿路径搜索完成 - 网格%1×%2，共找到%3条完整路径").arg(gridWidth).arg(gridHeight).arg(pathCount));
+        
+        // 显示第一条路径（如果存在）
+        if (pathCount > 0) {
+            PathResult firstResult = m_resultList->getAllResults().first();
+            m_gridView->showPath(firstResult.path());
+        }
+        
+        m_isCalculating = false;
+        m_calculationState = CalculationState::Idle;
+        m_controlPanel->setCalculationState(m_calculationState);
+        showCalculationProgress(false);
+        return;
+    }
+    
+    // 其他算法使用原有的计算方式
     QVector<QVector<QPoint>> allPaths = calculateAllPossiblePaths(start, end, selectedAlgorithm);
     
     int completedCount = 0;
@@ -464,8 +513,8 @@ QVector<QVector<QPoint>> MainWindow::calculateAllPossiblePaths(const QPoint& sta
         case AlgorithmType::AStar:
             // A*算法 - 生成多条可能的最优路径变体
             allPaths.append(calculateAStarPath(start, end));
-            // 生成更多路径变体
-            for (int i = 1; i <= 10; ++i) {
+            // 生成更多路径变体 - 增加到50条
+            for (int i = 1; i <= 50; ++i) {
                 QVector<QPoint> variant = calculatePathVariant(start, end, i);
                 if (!variant.isEmpty()) {
                     allPaths.append(variant);
@@ -476,9 +525,9 @@ QVector<QVector<QPoint>> MainWindow::calculateAllPossiblePaths(const QPoint& sta
         case AlgorithmType::Dijkstra:
             // Dijkstra算法 - 生成多条等长最短路径
             allPaths.append(calculateDijkstraPath(start, end));
-            // 生成更多等长路径变体
-            for (int i = 1; i <= 12; ++i) {
-                QVector<QPoint> variant = calculatePathVariant(start, end, i + 10);
+            // 生成更多等长路径变体 - 增加到60条
+            for (int i = 1; i <= 60; ++i) {
+                QVector<QPoint> variant = calculatePathVariant(start, end, i + 50);
                 if (!variant.isEmpty()) {
                     allPaths.append(variant);
                 }
@@ -488,9 +537,9 @@ QVector<QVector<QPoint>> MainWindow::calculateAllPossiblePaths(const QPoint& sta
         case AlgorithmType::BFS:
             // BFS - 生成所有可能的最短路径
             allPaths.append(calculateBFSPath(start, end));
-            // 生成其他最短路径
-            for (int i = 1; i <= 15; ++i) {
-                QVector<QPoint> variant = calculatePathVariant(start, end, i + 20);
+            // 生成其他最短路径 - 增加到70条
+            for (int i = 1; i <= 70; ++i) {
+                QVector<QPoint> variant = calculatePathVariant(start, end, i + 100);
                 if (!variant.isEmpty()) {
                     allPaths.append(variant);
                 }
@@ -498,14 +547,11 @@ QVector<QVector<QPoint>> MainWindow::calculateAllPossiblePaths(const QPoint& sta
             break;
             
         case AlgorithmType::DFS:
-            // DFS - 可能找到多条不同长度的路径
-            allPaths.append(calculateDFSPath(start, end));
-            // 生成更多DFS可能的路径（包括较长路径）
-            for (int i = 1; i <= 20; ++i) {
-                QVector<QPoint> variant = calculatePathVariant(start, end, i + 30);
-                if (!variant.isEmpty()) {
-                    allPaths.append(variant);
-                }
+            // DFS - 使用回溯法找到所有可能的路径，边计算边返回
+            {
+                // 直接开始DFS计算，不预先计算所有路径
+                calculateAllDFSPathsProgressive(start, end, algorithm);
+                return allPaths; // 返回空的，因为路径会逐步添加到结果列表中
             }
             break;
     }
@@ -542,8 +588,8 @@ QVector<QPoint> MainWindow::calculatePathVariant(const QPoint& start, const QPoi
     
     QPoint current = start;
     
-    // 根据变体类型生成不同的路径
-    int pathType = variant % 8; // 增加到8种不同的路径类型
+    // 根据变体类型生成不同的路径，增加更多类型
+    int pathType = variant % 16; // 增加到16种不同的路径类型
     
     switch (pathType) {
         case 0: // 先水平后垂直
@@ -650,8 +696,8 @@ QVector<QPoint> MainWindow::calculatePathVariant(const QPoint& start, const QPoi
             
         case 7: // 绕行路径 (稍微绕一下)
             {
-                int detourX = (variant / 8) % 3 - 1; // -1, 0, 1的偏移
-                int detourY = (variant / 24) % 3 - 1;
+                int detourX = (variant / 16) % 3 - 1; // -1, 0, 1的偏移
+                int detourY = (variant / 48) % 3 - 1;
                 
                 QPoint detour(start.x() + detourX, start.y() + detourY);
                 
@@ -676,6 +722,216 @@ QVector<QPoint> MainWindow::calculatePathVariant(const QPoint& start, const QPoi
                 while (current.y() != end.y()) {
                     current.setY(current.y() + (end.y() > current.y() ? 1 : -1));
                     path.append(current);
+                }
+            }
+            break;
+            
+        case 8: // 三步水平一步垂直模式
+            while (current.x() != end.x() || current.y() != end.y()) {
+                for (int i = 0; i < 3 && current.x() != end.x(); ++i) {
+                    current.setX(current.x() + (end.x() > current.x() ? 1 : -1));
+                    path.append(current);
+                }
+                if (current.y() != end.y()) {
+                    current.setY(current.y() + (end.y() > current.y() ? 1 : -1));
+                    path.append(current);
+                }
+            }
+            break;
+            
+        case 9: // 一步水平三步垂直模式
+            while (current.x() != end.x() || current.y() != end.y()) {
+                if (current.x() != end.x()) {
+                    current.setX(current.x() + (end.x() > current.x() ? 1 : -1));
+                    path.append(current);
+                }
+                for (int i = 0; i < 3 && current.y() != end.y(); ++i) {
+                    current.setY(current.y() + (end.y() > current.y() ? 1 : -1));
+                    path.append(current);
+                }
+            }
+            break;
+            
+        case 10: // 分段式路径：先移动1/3，再移动2/3
+            {
+                int totalX = end.x() - start.x();
+                QPoint mid1(start.x() + totalX / 3, start.y());
+                QPoint mid2(start.x() + totalX / 3, end.y());
+                
+                // 到第一个中间点
+                while (current.x() != mid1.x()) {
+                    current.setX(current.x() + (mid1.x() > current.x() ? 1 : -1));
+                    path.append(current);
+                }
+                // 到第二个中间点
+                while (current.y() != mid2.y()) {
+                    current.setY(current.y() + (mid2.y() > current.y() ? 1 : -1));
+                    path.append(current);
+                }
+                // 到终点
+                while (current.x() != end.x()) {
+                    current.setX(current.x() + (end.x() > current.x() ? 1 : -1));
+                    path.append(current);
+                }
+            }
+            break;
+            
+        case 11: // L形路径变体
+            {
+                bool horizontalFirst = variant % 2 == 0;
+                if (horizontalFirst) {
+                    // 先走一半水平，再垂直，再水平
+                    int halfX = (end.x() - start.x()) / 2;
+                    while (current.x() != start.x() + halfX) {
+                        current.setX(current.x() + (halfX > 0 ? 1 : -1));
+                        path.append(current);
+                    }
+                    while (current.y() != end.y()) {
+                        current.setY(current.y() + (end.y() > current.y() ? 1 : -1));
+                        path.append(current);
+                    }
+                    while (current.x() != end.x()) {
+                        current.setX(current.x() + (end.x() > current.x() ? 1 : -1));
+                        path.append(current);
+                    }
+                } else {
+                    // 先走一半垂直，再水平，再垂直
+                    int halfY = (end.y() - start.y()) / 2;
+                    while (current.y() != start.y() + halfY) {
+                        current.setY(current.y() + (halfY > 0 ? 1 : -1));
+                        path.append(current);
+                    }
+                    while (current.x() != end.x()) {
+                        current.setX(current.x() + (end.x() > current.x() ? 1 : -1));
+                        path.append(current);
+                    }
+                    while (current.y() != end.y()) {
+                        current.setY(current.y() + (end.y() > current.y() ? 1 : -1));
+                        path.append(current);
+                    }
+                }
+            }
+            break;
+            
+        case 12: // 螺旋式接近
+            {
+                int spiralSize = 1 + (variant % 3);
+                while (current != end) {
+                    // 向右
+                    for (int i = 0; i < spiralSize && current.x() < end.x(); ++i) {
+                        current.setX(current.x() + 1);
+                        path.append(current);
+                        if (current == end) break;
+                    }
+                    if (current == end) break;
+                    
+                    // 向下
+                    for (int i = 0; i < spiralSize && current.y() < end.y(); ++i) {
+                        current.setY(current.y() + 1);
+                        path.append(current);
+                        if (current == end) break;
+                    }
+                    if (current == end) break;
+                    
+                    // 如果还没到达，用简单路径补齐
+                    while (current.x() != end.x()) {
+                        current.setX(current.x() + (end.x() > current.x() ? 1 : -1));
+                        path.append(current);
+                    }
+                    while (current.y() != end.y()) {
+                        current.setY(current.y() + (end.y() > current.y() ? 1 : -1));
+                        path.append(current);
+                    }
+                    break;
+                }
+            }
+            break;
+            
+        case 13: // 锯齿形路径
+            while (current.x() != end.x() || current.y() != end.y()) {
+                // 水平移动1步
+                if (current.x() != end.x()) {
+                    current.setX(current.x() + (end.x() > current.x() ? 1 : -1));
+                    path.append(current);
+                }
+                // 垂直移动1步
+                if (current.y() != end.y()) {
+                    current.setY(current.y() + (end.y() > current.y() ? 1 : -1));
+                    path.append(current);
+                }
+                // 如果还有距离，再来一次小的锯齿
+                if (current.x() != end.x() && current.y() != end.y()) {
+                    if (current.x() != end.x()) {
+                        current.setX(current.x() + (end.x() > current.x() ? 1 : -1));
+                        path.append(current);
+                    }
+                }
+            }
+            break;
+            
+        case 14: // 角点式路径
+            {
+                // 选择一个角点
+                QPoint corner;
+                if (variant % 4 == 0) {
+                    corner = QPoint(end.x(), start.y()); // 右上角点
+                } else if (variant % 4 == 1) {
+                    corner = QPoint(start.x(), end.y()); // 左下角点
+                } else if (variant % 4 == 2) {
+                    corner = QPoint((start.x() + end.x()) / 2, start.y()); // 中上角点
+                } else {
+                    corner = QPoint(start.x(), (start.y() + end.y()) / 2); // 左中角点
+                }
+                
+                // 先到角点
+                while (current.x() != corner.x()) {
+                    current.setX(current.x() + (corner.x() > current.x() ? 1 : -1));
+                    path.append(current);
+                }
+                while (current.y() != corner.y()) {
+                    current.setY(current.y() + (corner.y() > current.y() ? 1 : -1));
+                    path.append(current);
+                }
+                // 从角点到终点
+                while (current.x() != end.x()) {
+                    current.setX(current.x() + (end.x() > current.x() ? 1 : -1));
+                    path.append(current);
+                }
+                while (current.y() != end.y()) {
+                    current.setY(current.y() + (end.y() > current.y() ? 1 : -1));
+                    path.append(current);
+                }
+            }
+            break;
+            
+        case 15: // 随机偏移路径
+            {
+                int offset = (variant % 5) - 2; // -2, -1, 0, 1, 2的偏移
+                while (current.x() != end.x() || current.y() != end.y()) {
+                    // 主要移动方向
+                    if (abs(end.x() - current.x()) > abs(end.y() - current.y())) {
+                        // 水平距离更大，优先水平移动
+                        if (current.x() != end.x()) {
+                            current.setX(current.x() + (end.x() > current.x() ? 1 : -1));
+                            path.append(current);
+                        }
+                        // 偶尔垂直移动
+                        if (path.size() % 3 == offset % 3 && current.y() != end.y()) {
+                            current.setY(current.y() + (end.y() > current.y() ? 1 : -1));
+                            path.append(current);
+                        }
+                    } else {
+                        // 垂直距离更大，优先垂直移动
+                        if (current.y() != end.y()) {
+                            current.setY(current.y() + (end.y() > current.y() ? 1 : -1));
+                            path.append(current);
+                        }
+                        // 偶尔水平移动
+                        if (path.size() % 3 == offset % 3 && current.x() != end.x()) {
+                            current.setX(current.x() + (end.x() > current.x() ? 1 : -1));
+                            path.append(current);
+                        }
+                    }
                 }
             }
             break;
@@ -743,48 +999,14 @@ QVector<QPoint> MainWindow::calculateBFSPath(const QPoint& start, const QPoint& 
 }
 
 QVector<QPoint> MainWindow::calculateDFSPath(const QPoint& start, const QPoint& end) {
-    // DFS可能会找到更曲折的路径
-    QVector<QPoint> path;
-    path.append(start);
-    
-    QPoint current = start;
-    
-    // 模拟DFS的曲折路径：交替移动
-    while (current != end) {
-        if (current.x() != end.x() && current.y() != end.y()) {
-            // 交替移动
-            if ((current.x() + current.y()) % 2 == 0) {
-                // 水平移动
-                if (current.x() < end.x()) {
-                    current.setX(current.x() + 1);
-                } else {
-                    current.setX(current.x() - 1);
-                }
-            } else {
-                // 垂直移动
-                if (current.y() < end.y()) {
-                    current.setY(current.y() + 1);
-                } else {
-                    current.setY(current.y() - 1);
-                }
-            }
-        } else if (current.x() != end.x()) {
-            if (current.x() < end.x()) {
-                current.setX(current.x() + 1);
-            } else {
-                current.setX(current.x() - 1);
-            }
-        } else if (current.y() != end.y()) {
-            if (current.y() < end.y()) {
-                current.setY(current.y() + 1);
-            } else {
-                current.setY(current.y() - 1);
-            }
-        }
-        path.append(current);
+    // 使用DFS回溯算法找到一条路径
+    QVector<QVector<QPoint>> allPaths = findAllDFSPaths(start, end);
+    if (!allPaths.isEmpty()) {
+        return allPaths.first();
     }
     
-    return path;
+    // 如果DFS没找到路径，使用简单路径作为备用
+    return calculateSimplePath(start, end);
 }
 
 // 添加算法名称获取方法
@@ -866,6 +1088,52 @@ void MainWindow::onResultSelectionChanged(const PathResult& result) {
     Q_UNUSED(result)
 }
 
+void MainWindow::onBatchAddResults(const QVector<PathResult>& results) {
+    // 批量添加结果到表格 - 线程安全的UI更新
+    for (const PathResult& result : results) {
+        if (m_resultList) {
+            m_resultList->addResult(result);
+        }
+    }
+    
+    // 更新状态信息
+    updateStatusMessage(QString("已添加 %1 条路径结果").arg(results.size()));
+}
+
+void MainWindow::processBatchQueue() {
+    QMutexLocker locker(&m_queueMutex);
+    
+    if (m_pathQueue.isEmpty()) {
+        return;
+    }
+    
+    qDebug() << "processBatchQueue: 队列中有" << m_pathQueue.size() << "个结果";
+    
+    // 每次最多处理5个结果
+    QVector<PathResult> batchResults;
+    int processCount = qMin(5, m_pathQueue.size());
+    
+    for (int i = 0; i < processCount; ++i) {
+        batchResults.append(m_pathQueue.dequeue());
+    }
+    
+    qDebug() << "取出" << batchResults.size() << "个结果，队列剩余" << m_pathQueue.size() << "个";
+    
+    // 释放锁后更新UI
+    locker.unlock();
+    
+    // 批量添加到UI
+    for (const PathResult& result : batchResults) {
+        if (m_resultList) {
+            m_resultList->addResult(result);
+        }
+    }
+    
+    // 更新状态信息
+    updateStatusMessage(QString("已处理 %1 条路径结果，队列剩余 %2 条")
+                       .arg(batchResults.size()).arg(m_pathQueue.size()));
+}
+
 void MainWindow::onDeleteSelectedResults() {
     updateStatusMessage("已删除选中的结果");
 }
@@ -918,5 +1186,252 @@ void MainWindow::onClearCurrentResults() {
         m_resultList->clearResults();
         m_gridView->clearPath();
         updateStatusMessage("当前结果已清空");
+    }
+}
+
+// 使用DFS回溯算法找到所有可能的路径
+QVector<QVector<QPoint>> MainWindow::findAllDFSPaths(const QPoint& start, const QPoint& end) {
+    QVector<QVector<QPoint>> allPaths;
+    QVector<QPoint> currentPath;
+    QSet<QPoint> visited;
+    
+    currentPath.append(start);
+    visited.insert(start);
+    
+    // 限制搜索深度，避免路径过长
+    int maxDepth = abs(end.x() - start.x()) + abs(end.y() - start.y()) + 20;
+    
+    dfsBacktrack(start, end, currentPath, visited, allPaths, maxDepth);
+    
+    return allPaths; // 不再限制路径数量
+}
+
+// DFS回溯核心算法
+void MainWindow::dfsBacktrack(const QPoint& current, const QPoint& end, 
+                              QVector<QPoint>& currentPath, QSet<QPoint>& visited, 
+                              QVector<QVector<QPoint>>& allPaths, int maxDepth) {
+    
+    // 如果到达终点，保存路径
+    if (current == end) {
+        allPaths.append(currentPath);
+        return;
+    }
+    
+    // 如果路径太长，剪枝（但不限制找到的路径总数）
+    if (currentPath.size() > maxDepth) {
+        return;
+    }
+    
+    // 获取当前点的所有邻居
+    QVector<QPoint> neighbors = getNeighbors(current);
+    
+    // 按照启发式排序邻居（优先选择更接近终点的邻居）
+    std::sort(neighbors.begin(), neighbors.end(), [&](const QPoint& a, const QPoint& b) {
+        int distA = abs(a.x() - end.x()) + abs(a.y() - end.y());
+        int distB = abs(b.x() - end.x()) + abs(b.y() - end.y());
+        return distA < distB;
+    });
+    
+    // 尝试每个邻居
+    for (const QPoint& neighbor : neighbors) {
+        // 检查是否可以移动到这个邻居
+        if (!visited.contains(neighbor) && isValidMove(current, neighbor)) {
+            // 标记为已访问
+            visited.insert(neighbor);
+            currentPath.append(neighbor);
+            
+            // 递归搜索
+            dfsBacktrack(neighbor, end, currentPath, visited, allPaths, maxDepth);
+            
+            // 回溯：撤销选择
+            currentPath.removeLast();
+            visited.remove(neighbor);
+        }
+    }
+}
+
+// 检查移动是否有效
+bool MainWindow::isValidMove(const QPoint& from, const QPoint& to) {
+    // 检查是否是相邻的点（4方向连通）
+    int dx = abs(to.x() - from.x());
+    int dy = abs(to.y() - from.y());
+    
+    // 只允许上下左右移动，不允许对角线移动
+    if ((dx == 1 && dy == 0) || (dx == 0 && dy == 1)) {
+        // 检查目标点是否在网格范围内
+        if (m_gridView) {
+            int gridWidth = m_gridView->gridWidth();
+            int gridHeight = m_gridView->gridHeight();
+            
+            if (to.x() >= 0 && to.x() < gridWidth && to.y() >= 0 && to.y() < gridHeight) {
+                // 这里可以添加更多约束，比如检查是否是障碍物等
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+// 获取一个点的所有有效邻居
+QVector<QPoint> MainWindow::getNeighbors(const QPoint& point) {
+    QVector<QPoint> neighbors;
+    
+    // 四个方向：上、下、左、右
+    QVector<QPoint> directions = {
+        QPoint(0, -1),  // 上
+        QPoint(0, 1),   // 下
+        QPoint(-1, 0),  // 左
+        QPoint(1, 0)    // 右
+    };
+    
+    for (const QPoint& dir : directions) {
+        QPoint neighbor = point + dir;
+        
+        // 检查邻居是否在网格范围内
+        if (m_gridView) {
+            int gridWidth = m_gridView->gridWidth();
+            int gridHeight = m_gridView->gridHeight();
+            
+            if (neighbor.x() >= 0 && neighbor.x() < gridWidth && 
+                neighbor.y() >= 0 && neighbor.y() < gridHeight) {
+                neighbors.append(neighbor);
+            }
+        }
+    }
+    
+    return neighbors;
+}
+
+// 渐进式DFS计算：使用队列系统
+void MainWindow::calculateAllDFSPathsProgressive(const QPoint& start, const QPoint& end, AlgorithmType algorithm) {
+    qDebug() << "calculateAllDFSPathsProgressive 开始 - 起点:" << start << "终点:" << end;
+    
+    QVector<QPoint> currentPath;
+    QSet<QPoint> visited;
+    
+    currentPath.append(start);
+    visited.insert(start);
+    
+    qDebug() << "启动批量处理定时器...";
+    // 启动批量处理定时器
+    m_batchTimer->start();
+    
+    // 设置搜索深度为所有点数（哈密顿路径必须经过所有点）
+    int totalPoints = m_gridView->gridWidth() * m_gridView->gridHeight();
+    int maxDepth = totalPoints;  // 哈密顿路径的长度必须等于总点数
+    qDebug() << "哈密顿路径搜索深度:" << maxDepth << "（必须经过所有点）";
+    
+    qDebug() << "开始DFS回溯搜索...";
+    // 开始渐进式DFS搜索
+    dfsBacktrackProgressive(start, end, currentPath, visited, algorithm, start, maxDepth);
+    
+    qDebug() << "DFS搜索完成，停止定时器...";
+    // 停止定时器
+    m_batchTimer->stop();
+    
+    qDebug() << "处理队列中剩余的结果...";
+    // 处理队列中剩余的所有结果
+    processBatchQueue();
+    qDebug() << "calculateAllDFSPathsProgressive 完成";
+}
+
+// 渐进式DFS回溯算法：将找到的路径添加到队列中
+void MainWindow::dfsBacktrackProgressive(const QPoint& current, const QPoint& end, 
+                                        QVector<QPoint>& currentPath, QSet<QPoint>& visited, 
+                                        AlgorithmType algorithm, const QPoint& startPoint, int maxDepth) {
+    
+    // 检查是否应该停止计算（包括路径数量限制）
+    if (m_shouldStopCalculation || m_totalPathCount >= MAX_PATHS) {
+        qDebug() << "DFS停止条件触发: shouldStop=" << m_shouldStopCalculation 
+                 << "totalPaths=" << m_totalPathCount << "maxPaths=" << MAX_PATHS;
+        return;
+    }
+    
+    // 添加调试输出，但限制频率
+    static int debugCounter = 0;
+    if (debugCounter % 1000 == 0) {
+        qDebug() << "DFS搜索中... 当前点:" << current << "路径长度:" << currentPath.size();
+    }
+    debugCounter++;
+    
+    // 如果到达终点，检查是否为哈密顿路径（经过所有点）
+    if (current == end) {
+        // 计算网格中的总点数
+        int totalPoints = m_gridView->gridWidth() * m_gridView->gridHeight();
+        
+        // 检查路径是否经过了所有点
+        if (currentPath.size() == totalPoints) {
+            qDebug() << "找到哈密顿路径! 长度:" << currentPath.size() << "当前路径数:" << m_totalPathCount;
+            
+            // 先检查是否已经达到最大路径限制
+            if (m_totalPathCount >= MAX_PATHS) {
+                qDebug() << "已达到最大哈密顿路径限制:" << MAX_PATHS << "，停止搜索";
+                m_shouldStopCalculation = true;  // 设置停止标志
+                return;
+            }
+            
+            // 计算用时（模拟）
+            qint64 calcTime = QTime::currentTime().msecsSinceStartOfDay() % 100 + 1;
+            
+            // 创建路径结果
+            PathResult result("", startPoint, end, currentPath, algorithm, calcTime);
+            
+            // 线程安全地添加到队列
+            {
+                QMutexLocker locker(&m_queueMutex);
+                m_pathQueue.enqueue(result);
+                m_totalPathCount++;
+                qDebug() << "哈密顿路径已添加到队列，队列大小:" << m_pathQueue.size() << "总路径数:" << m_totalPathCount;
+            }
+        } else {
+            // 到达终点但不是哈密顿路径，跳过
+            qDebug() << "到达终点但路径不完整，只经过了" << currentPath.size() << "个点，总共需要" << totalPoints << "个点";
+        }
+        
+        return;
+    }
+    
+    // 如果路径长度不等于总点数且已经到达最大深度，剪枝
+    if (currentPath.size() > maxDepth) {
+        return;
+    }
+    
+    // 如果还没有经过所有点但已经到了终点，这不是有效的哈密顿路径
+    if (current == end && currentPath.size() < maxDepth) {
+        return;  // 剪枝，因为这不是完整的哈密顿路径
+    }
+    
+    // 获取当前点的所有邻居
+    QVector<QPoint> neighbors = getNeighbors(current);
+    
+    // 按照启发式排序邻居（优先选择更接近终点的邻居）
+    std::sort(neighbors.begin(), neighbors.end(), [&](const QPoint& a, const QPoint& b) {
+        int distA = abs(a.x() - end.x()) + abs(a.y() - end.y());
+        int distB = abs(b.x() - end.x()) + abs(b.y() - end.y());
+        return distA < distB;
+    });
+    
+    // 尝试每个邻居
+    for (const QPoint& neighbor : neighbors) {
+        // 检查是否应该停止计算（包括路径数量限制）
+        if (m_shouldStopCalculation || m_totalPathCount >= MAX_PATHS) {
+            qDebug() << "在邻居循环中检测到停止条件";
+            return;
+        }
+        
+        // 检查是否可以移动到这个邻居
+        if (!visited.contains(neighbor) && isValidMove(current, neighbor)) {
+            // 标记为已访问
+            visited.insert(neighbor);
+            currentPath.append(neighbor);
+            
+            // 递归搜索
+            dfsBacktrackProgressive(neighbor, end, currentPath, visited, algorithm, startPoint, maxDepth);
+            
+            // 回溯：撤销选择
+            currentPath.removeLast();
+            visited.remove(neighbor);
+        }
     }
 }

@@ -56,6 +56,12 @@ void ResultListWidget::setupTable() {
     m_tableView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_tableView->setMinimumHeight(200); // 设置最小高度
     
+    // 确保表格可以滚动显示所有行
+    m_tableView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_tableView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_tableView->setVerticalScrollMode(QAbstractItemView::ScrollPerItem);
+    m_tableView->setHorizontalScrollMode(QAbstractItemView::ScrollPerItem);
+    
     // 设置列宽度
     QHeaderView* header = m_tableView->horizontalHeader();
     header->setStretchLastSection(false);
