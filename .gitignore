@@ -1,0 +1,162 @@
+# Qt-es
+
+*.qmake.cache
+*.qmake.stash
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.moc
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.qmlc
+*.jsc
+Makefile*
+*build-*
+*.qm
+*.prl
+
+# Qt unit tests
+target_wrapper.*
+
+# QtCreator
+*.autosave
+
+# QtCreator Qml
+*.qmlproject.user
+*.qmlproject.user.*
+
+# QtCreator CMake
+CMakeLists.txt.user*
+
+# QtCreator 4.8< compilation database 
+compile_commands.json
+
+# QtCreator local machine specific files for imported projects
+*creator.user*
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Build directories
+build/
+debug/
+release/
+Debug/
+Release/
+build-*/
+
+# Object files
+*.o
+*.obj
+
+# Qt-specific
+*.moc
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+
+# Temporary files
+*~
+.tmp/
+*.tmp
+*.bak
+*.swp
+*~.nib
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Windows
+*.exe
+*.dll
+*.lib
+*.exp
+
+# MinGW generated files
+*.a
+*.la
+*.lo
+*.so
+*.so.*
+*.dylib
+
+# Makefiles
+Makefile
+Makefile.*
+!Makefile.in
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+
+# Package managers
+node_modules/
+.npm
+.yarn/
+yarn.lock
+package-lock.json
+
+# IDEs and editors
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.cproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
+*.log.*
+
+# Database files (if any)
+*.db
+*.sqlite
+*.sqlite3
+
+# Configuration files with sensitive data
+config.ini
+settings.conf
+*.key
+*.pem
+
+# Backup files
+*.backup
+*.orig
+
+# Cache directories
+.cache/
+__pycache__/
+*.pyc
+*.pyo
+
+# Documentation build
+docs/_build/
+doc/html/
+doc/latex/
+
+# Test coverage
+coverage/
+*.gcov
+*.gcda
+*.gcno
+
+# Profiling data
+*.prof
+gmon.out
