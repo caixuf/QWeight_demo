@@ -36,7 +36,7 @@ void ResultListWidget::setupTable() {
     
     // 设置表头
     QStringList headers;
-    headers << "序号" << "算法" << "起点" << "终点" << "路径" << "步数" << "耗时" << "时间";
+    headers << "序号" << "算法" << "起点" << "终点" << "步数" << "耗时" << "时间";
     m_model->setHorizontalHeaderLabels(headers);
     
     // 创建表格视图
@@ -54,7 +54,7 @@ void ResultListWidget::setupTable() {
     
     // 设置表格大小政策，确保可以充满空间
     m_tableView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    m_tableView->setMinimumHeight(200); // 设置最小高度
+    m_tableView->setMinimumHeight(150); // 设置最小高度，减少一些给按钮留空间
     
     // 确保表格可以滚动显示所有行
     m_tableView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -62,24 +62,54 @@ void ResultListWidget::setupTable() {
     m_tableView->setVerticalScrollMode(QAbstractItemView::ScrollPerItem);
     m_tableView->setHorizontalScrollMode(QAbstractItemView::ScrollPerItem);
     
-    // 设置列宽度
+    // 设置表格自适应父容器大小
+    m_tableView->horizontalHeader()->setMinimumSectionSize(30); // 最小列宽
+    m_tableView->horizontalHeader()->setDefaultSectionSize(80); // 默认列宽
+    
+    // 设置列宽度 - 使用权重分配和自适应
     QHeaderView* header = m_tableView->horizontalHeader();
-    header->setStretchLastSection(false);
-    header->resizeSection(COL_INDEX, 50);        // 序号
-    header->resizeSection(COL_ALGORITHM, 80);    // 算法
-    header->resizeSection(COL_START_POINT, 70);  // 起点
-    header->resizeSection(COL_END_POINT, 70);    // 终点
-    header->resizeSection(COL_PATH, 200);        // 路径（箭头形式）- 需要更多空间
-    header->resizeSection(COL_PATH_LENGTH, 60);  // 步数
-    header->resizeSection(COL_CALC_TIME, 80);    // 耗时
-    header->resizeSection(COL_TIMESTAMP, 70);    // 时间
+    
+    // 设置列宽度模式，让表格充满整个宽度
+    header->setStretchLastSection(true);  // 最后一列拉伸填满剩余空间
+    
+    // 设置各列的初始大小和调整模式
+    header->resizeSection(COL_INDEX, 60);        // 序号 - 固定宽度
+    header->resizeSection(COL_ALGORITHM, 80);    // 算法 - 固定宽度
+    header->resizeSection(COL_START_POINT, 90);  // 起点 - 固定宽度
+    header->resizeSection(COL_END_POINT, 90);    // 终点 - 固定宽度
+    header->resizeSection(COL_PATH_LENGTH, 80);  // 步数 - 固定宽度
+    header->resizeSection(COL_CALC_TIME, 100);   // 耗时 - 固定宽度
+    // 时间戳列会自动拉伸填满剩余空间
+    
+    // 设置不同列的调整模式
+    header->setSectionResizeMode(COL_INDEX, QHeaderView::Fixed);           // 序号固定
+    header->setSectionResizeMode(COL_ALGORITHM, QHeaderView::Fixed);       // 算法固定
+    header->setSectionResizeMode(COL_START_POINT, QHeaderView::Interactive); // 起点可调整
+    header->setSectionResizeMode(COL_END_POINT, QHeaderView::Interactive);   // 终点可调整
+    header->setSectionResizeMode(COL_PATH_LENGTH, QHeaderView::Interactive); // 步数可调整
+    header->setSectionResizeMode(COL_CALC_TIME, QHeaderView::Interactive);   // 耗时可调整
+    header->setSectionResizeMode(COL_TIMESTAMP, QHeaderView::Stretch);       // 时间戳拉伸填满
     
     // 设置行高
     m_tableView->verticalHeader()->setDefaultSectionSize(25);
     m_tableView->verticalHeader()->hide(); // 隐藏行号
     
-    // 让表格占用更多垂直空间
-    m_mainLayout->addWidget(m_tableView, 1); // 添加拉伸因子1
+    // 让表格占用更多垂直空间，给它更高的权重
+    m_mainLayout->addWidget(m_tableView, 10); // 增加拉伸因子到10，让表格占据主要空间
+    
+    // 重新连接信号
+    connect(m_tableView, &QTableView::doubleClicked,
+            this, [this](const QModelIndex& index) {
+                onItemDoubleClicked(index.row(), index.column());
+            });
+    connect(m_tableView->selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, &ResultListWidget::onSelectionChanged);
+    connect(m_tableView, &QTableView::customContextMenuRequested,
+            this, &ResultListWidget::onContextMenuRequested);
+    
+    // 监听表格视口大小变化，自动调整列宽
+    connect(m_tableView->horizontalHeader(), &QHeaderView::geometriesChanged,
+            this, &ResultListWidget::resizeColumnsToContents);
 }
 
 void ResultListWidget::setupButtons() {
@@ -125,16 +155,6 @@ void ResultListWidget::setupContextMenu() {
 }
 
 void ResultListWidget::setupConnections() {
-    // 表格事件
-    connect(m_tableView, &QTableView::doubleClicked,
-            this, [this](const QModelIndex& index) {
-                onItemDoubleClicked(index.row(), index.column());
-            });
-    connect(m_tableView->selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, &ResultListWidget::onSelectionChanged);
-    connect(m_tableView, &QTableView::customContextMenuRequested,
-            this, &ResultListWidget::onContextMenuRequested);
-    
     // 按钮事件
     connect(m_deleteButton, &QPushButton::clicked,
             this, &ResultListWidget::onDeleteSelected);
@@ -180,6 +200,37 @@ void ResultListWidget::clearResults() {
     m_model->setRowCount(0);
     m_statusLabel->setText("计算结果: 0 条记录");
     updateButtonStates();
+}
+
+void ResultListWidget::recreateTable() {
+    qDebug() << "开始重新创建表格...";
+    
+    // 清空结果数据
+    m_results.clear();
+    
+    // 完全销毁旧的表格组件
+    if (m_tableView) {
+        m_mainLayout->removeWidget(m_tableView);
+        delete m_tableView;
+        m_tableView = nullptr;
+    }
+    
+    if (m_model) {
+        delete m_model;
+        m_model = nullptr;
+    }
+    
+    // 重新创建表格
+    setupTable();
+    
+    // 更新状态
+    m_statusLabel->setText("计算结果: 0 条记录");
+    updateButtonStates();
+    
+    // 强制刷新界面
+    this->update();
+    
+    qDebug() << "表格重新创建完成";
 }
 
 void ResultListWidget::removeSelectedResults() {
@@ -242,6 +293,86 @@ void ResultListWidget::setResults(const QVector<PathResult>& results) {
     
     m_statusLabel->setText(QString("计算结果: %1 条记录").arg(results.size()));
     updateButtonStates();
+    resizeColumnsToContents(); // 自动调整列宽
+}
+
+void ResultListWidget::addBatchResults(const QVector<PathResult>& results) {
+    if (results.isEmpty()) return;
+    
+    int startRow = m_model->rowCount();
+    m_model->insertRows(startRow, results.size());
+    
+    for (int i = 0; i < results.size(); ++i) {
+        m_results.append(results[i]);
+        updateResultRow(startRow + i, results[i]);
+    }
+    
+    // 更新状态标签
+    m_statusLabel->setText(QString("计算结果: %1 条记录").arg(m_results.size()));
+    updateButtonStates();
+    
+    // 滚动到新添加的行
+    m_tableView->scrollToBottom();
+    
+    // 每批次添加后调整列宽
+    resizeColumnsToContents();
+    
+    qDebug() << "批量添加" << results.size() << "条结果，总数:" << m_results.size();
+}
+
+void ResultListWidget::resizeColumnsToContents() {
+    if (!m_tableView || !m_model) return;
+    
+    QHeaderView* header = m_tableView->horizontalHeader();
+    
+    // 首先让表格根据内容自动调整列宽
+    m_tableView->resizeColumnsToContents();
+    
+    // 获取表格总宽度
+    int totalWidth = m_tableView->viewport()->width();
+    if (totalWidth <= 0) return;
+    
+    // 计算固定列的总宽度
+    int fixedWidth = 0;
+    fixedWidth += qMax(50, qMin(header->sectionSize(COL_INDEX), 80));         // 序号列：50-80
+    fixedWidth += qMax(60, qMin(header->sectionSize(COL_ALGORITHM), 100));    // 算法列：60-100
+    
+    // 为可调整列分配剩余宽度
+    int remainingWidth = totalWidth - fixedWidth;
+    if (remainingWidth > 0) {
+        // 按比例分配剩余宽度：起点15%，终点15%，步数15%，耗时20%，时间戳35%
+        int startWidth = qMax(80, remainingWidth * 15 / 100);
+        int endWidth = qMax(80, remainingWidth * 15 / 100);
+        int lengthWidth = qMax(70, remainingWidth * 15 / 100);
+        int timeWidth = qMax(90, remainingWidth * 20 / 100);
+        int timestampWidth = qMax(80, remainingWidth * 35 / 100);
+        
+        // 确保总宽度不超过可用宽度
+        int allocatedWidth = startWidth + endWidth + lengthWidth + timeWidth + timestampWidth;
+        if (allocatedWidth > remainingWidth) {
+            // 按比例缩减
+            double scale = (double)remainingWidth / allocatedWidth;
+            startWidth = (int)(startWidth * scale);
+            endWidth = (int)(endWidth * scale);
+            lengthWidth = (int)(lengthWidth * scale);
+            timeWidth = (int)(timeWidth * scale);
+            timestampWidth = remainingWidth - startWidth - endWidth - lengthWidth - timeWidth;
+        }
+        
+        // 应用计算的宽度
+        header->resizeSection(COL_START_POINT, startWidth);
+        header->resizeSection(COL_END_POINT, endWidth);
+        header->resizeSection(COL_PATH_LENGTH, lengthWidth);
+        header->resizeSection(COL_CALC_TIME, timeWidth);
+        header->resizeSection(COL_TIMESTAMP, timestampWidth);
+    }
+    
+    // 应用固定列的限制
+    int indexWidth = qMax(50, qMin(header->sectionSize(COL_INDEX), 80));
+    header->resizeSection(COL_INDEX, indexWidth);
+    
+    int algoWidth = qMax(60, qMin(header->sectionSize(COL_ALGORITHM), 100));
+    header->resizeSection(COL_ALGORITHM, algoWidth);
 }
 
 void ResultListWidget::updateResultRow(int row, const PathResult& result) {
@@ -251,26 +382,11 @@ void ResultListWidget::updateResultRow(int row, const PathResult& result) {
     indexItem->setTextAlignment(Qt::AlignCenter);
     m_model->setItem(row, COL_INDEX, indexItem);
     
-    // 算法名称（更突出显示）
-    QStandardItem* algoItem = new QStandardItem(result.algorithmString());
+    // 算法名称（固定为DFS）
+    QStandardItem* algoItem = new QStandardItem("DFS");
     algoItem->setFlags(algoItem->flags() & ~Qt::ItemIsEditable);
     algoItem->setTextAlignment(Qt::AlignCenter);
-    
-    // 根据算法类型设置不同的背景色
-    switch (result.algorithm()) {
-        case AlgorithmType::AStar:
-            algoItem->setBackground(QColor(255, 230, 230)); // 浅红色
-            break;
-        case AlgorithmType::Dijkstra:
-            algoItem->setBackground(QColor(230, 255, 230)); // 浅绿色
-            break;
-        case AlgorithmType::BFS:
-            algoItem->setBackground(QColor(230, 230, 255)); // 浅蓝色
-            break;
-        case AlgorithmType::DFS:
-            algoItem->setBackground(QColor(255, 255, 230)); // 浅黄色
-            break;
-    }
+    algoItem->setBackground(QColor(255, 255, 230)); // 浅黄色
     m_model->setItem(row, COL_ALGORITHM, algoItem);
     
     // 起点
@@ -286,14 +402,6 @@ void ResultListWidget::updateResultRow(int row, const PathResult& result) {
     endItem->setFlags(endItem->flags() & ~Qt::ItemIsEditable);
     endItem->setTextAlignment(Qt::AlignCenter);
     m_model->setItem(row, COL_END_POINT, endItem);
-    
-    // 路径（箭头形式）
-    QString pathText = formatPathAsArrows(result.path());
-    QStandardItem* pathItem = new QStandardItem(pathText);
-    pathItem->setFlags(pathItem->flags() & ~Qt::ItemIsEditable);
-    pathItem->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter); // 左对齐，因为路径可能很长
-    pathItem->setToolTip(pathText); // 添加工具提示以显示完整路径
-    m_model->setItem(row, COL_PATH, pathItem);
     
     // 路径长度（步数）
     QString lengthText = QString("%1 步").arg(result.pathLength());
@@ -418,4 +526,11 @@ QString ResultListWidget::formatPathAsArrows(const QVector<QPoint>& path) const 
     result += QString("(%1,%2)").arg(lastPoint.x()).arg(lastPoint.y());
     
     return result;
+}
+
+void ResultListWidget::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    
+    // 直接调整列宽，避免使用QTimer
+    resizeColumnsToContents();
 }

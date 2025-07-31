@@ -76,14 +76,12 @@ void ControlPanel::setupCalculationGroup() {
     m_calculationGroup = new QGroupBox("路径计算", this);
     QVBoxLayout* layout = new QVBoxLayout(m_calculationGroup);
     
-    // 算法选择
+    // 算法选择（固定为DFS）
     QHBoxLayout* algoLayout = new QHBoxLayout();
     algoLayout->addWidget(new QLabel("算法:"));
     m_algorithmCombo = new QComboBox();
-    m_algorithmCombo->addItem("A*", static_cast<int>(AlgorithmType::AStar));
-    m_algorithmCombo->addItem("Dijkstra", static_cast<int>(AlgorithmType::Dijkstra));
-    m_algorithmCombo->addItem("BFS", static_cast<int>(AlgorithmType::BFS));
-    m_algorithmCombo->addItem("DFS", static_cast<int>(AlgorithmType::DFS));
+    m_algorithmCombo->addItem("DFS (深度优先搜索)", static_cast<int>(AlgorithmType::DFS));
+    m_algorithmCombo->setEnabled(false);  // 禁用算法选择，固定为DFS
     algoLayout->addWidget(m_algorithmCombo);
     layout->addLayout(algoLayout);
     

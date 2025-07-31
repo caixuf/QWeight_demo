@@ -28,7 +28,7 @@ MainWindow::MainWindow(QWidget* parent)
         
         qDebug() << "初始化批量处理定时器...";
         m_batchTimer = new QTimer(this);
-        m_batchTimer->setInterval(500); // 每500ms处理一次队列，减少UI压力
+        m_batchTimer->setInterval(100); // 每100ms处理一次队列，提高响应性
         connect(m_batchTimer, &QTimer::timeout, this, &MainWindow::processBatchQueue);
         
         qDebug() << "设置连接...";
@@ -293,6 +293,12 @@ void MainWindow::onApplyGridSize() {
     // 重置起点终点
     m_currentStartPoint = QPoint(-1, -1);
     m_currentEndPoint = QPoint(-1, -1);
+    
+    // 重新创建表格 - 完全销毁之前的表格
+    if (m_resultList) {
+        m_resultList->recreateTable();
+        qDebug() << "结果表格已重新创建";
+    }
 }
 
 void MainWindow::onPointClicked(QPoint position, PointType currentType) {
@@ -381,100 +387,35 @@ void MainWindow::onStartCalculation() {
     m_resultList->clearResults();
     m_gridView->clearPath();
     
-    // 获取用户选择的算法
-    AlgorithmType selectedAlgorithm = m_controlPanel->getSelectedAlgorithm();
-    QString algorithmName = getAlgorithmName(selectedAlgorithm);
-    qDebug() << "选择的算法:" << algorithmName;
+    // 固定使用DFS算法
+    QString algorithmName = "DFS";
+    qDebug() << "使用算法:" << algorithmName;
     
-    updateStatusMessage(QString("正在计算 %1 算法的所有可能路径...").arg(algorithmName));
+    updateStatusMessage(QString("正在使用 %1 算法计算路径...").arg(algorithmName));
     
-    // 特殊处理DFS算法：使用渐进式计算搜索哈密顿路径
-    if (selectedAlgorithm == AlgorithmType::DFS) {
-        qDebug() << "=== 准备开始哈密顿路径搜索 ===";
-        qDebug() << "起点:" << start << "终点:" << end;
-        qDebug() << "网格大小:" << gridWidth << "x" << gridHeight << "总点数:" << (gridWidth * gridHeight);
-        updateStatusMessage(QString("开始搜索哈密顿路径（经过所有 %1 个点），将实时显示找到的路径...").arg(gridWidth * gridHeight));
-        
-        // DFS算法会直接在计算过程中添加结果到表格
-        calculateAllDFSPathsProgressive(start, end, selectedAlgorithm);
-        qDebug() << "=== 哈密顿路径搜索完成! ===";
-        
-        // DFS计算完成
-        int pathCount = m_resultList->getAllResults().size();
-        updateStatusMessage(QString("哈密顿路径搜索完成 - 网格%1×%2，共找到%3条完整路径").arg(gridWidth).arg(gridHeight).arg(pathCount));
-        
-        // 显示第一条路径（如果存在）
-        if (pathCount > 0) {
-            PathResult firstResult = m_resultList->getAllResults().first();
-            m_gridView->showPath(firstResult.path());
-        }
-        
-        m_isCalculating = false;
-        m_calculationState = CalculationState::Idle;
-        m_controlPanel->setCalculationState(m_calculationState);
-        showCalculationProgress(false);
-        return;
-    }
+    // 使用DFS算法计算路径
+    qDebug() << "=== 开始DFS路径计算 ===";
+    qDebug() << "起点:" << start << "终点:" << end;
+    qDebug() << "网格大小:" << gridWidth << "x" << gridHeight;
     
-    // 其他算法使用原有的计算方式
-    QVector<QVector<QPoint>> allPaths = calculateAllPossiblePaths(start, end, selectedAlgorithm);
+    // 使用简单的DFS路径计算
+    calculateSimpleDFSPath(start, end);
+    qDebug() << "=== DFS路径计算完成! ===";
     
-    int completedCount = 0;
+    // 计算完成
+    int pathCount = m_resultList->getAllResults().size();
+    updateStatusMessage(QString("路径计算完成 - 网格%1×%2，找到%3条路径").arg(gridWidth).arg(gridHeight).arg(pathCount));
     
-    for (int i = 0; i < allPaths.size(); ++i) {
-        // 检查停止标记
-        if (m_shouldStopCalculation) {
-            updateStatusMessage(QString("计算已停止 - 已完成 %1/%2 条路径").arg(completedCount).arg(allPaths.size()));
-            break;
-        }
-        
-        updateStatusMessage(QString("正在处理第 %1 条路径... (%2/%3)").arg(i + 1).arg(i + 1).arg(allPaths.size()));
-        
-        // 记录开始时间
-        qint64 startTime = QDateTime::currentMSecsSinceEpoch();
-        
-        // 处理UI事件，允许停止操作
-        for (int j = 0; j < 5 && !m_shouldStopCalculation; ++j) {
-            QApplication::processEvents();
-            QThread::msleep(10); // 模拟计算时间
-        }
-        
-        if (m_shouldStopCalculation) {
-            break;
-        }
-        
-        QVector<QPoint> path = allPaths[i];
-        
-        // 计算用时
-        qint64 calculationTime = QDateTime::currentMSecsSinceEpoch() - startTime;
-        
-        if (!path.isEmpty()) {
-            PathResult result(QString("%1_路径%2").arg(algorithmName).arg(i + 1), // 唯一ID
-                             start,
-                             end,
-                             path,
-                             selectedAlgorithm,
-                             calculationTime);
-            
-            m_resultList->addResult(result);
-            
-            // 显示第一条路径
-            if (i == 0) {
-                m_gridView->showPath(path);
-            }
-            
-            completedCount++;
-        }
+    // 显示找到的路径（如果存在）
+    if (pathCount > 0) {
+        PathResult result = m_resultList->getAllResults().first();
+        m_gridView->showPath(result.path());
     }
     
     m_isCalculating = false;
-    m_calculationState = CalculationState::Completed;
+    m_calculationState = CalculationState::Idle;
     m_controlPanel->setCalculationState(m_calculationState);
     showCalculationProgress(false);
-    
-    if (!m_shouldStopCalculation) {
-        updateStatusMessage(QString("计算完成 - 网格%1×%2，使用%3算法，共找到%4条路径").arg(gridWidth).arg(gridHeight).arg(algorithmName).arg(completedCount));
-    }
 }
 
 QVector<QPoint> MainWindow::calculateSimplePath(const QPoint& start, const QPoint& end) {
@@ -501,7 +442,7 @@ QVector<QPoint> MainWindow::calculateSimplePath(const QPoint& start, const QPoin
         }
         path.append(current);
     }
-    
+
     return path;
 }
 
@@ -940,6 +881,42 @@ QVector<QPoint> MainWindow::calculatePathVariant(const QPoint& start, const QPoi
     return path;
 }
 
+// 哈密顿路径计算（从起点到终点并且经过所有点）
+void MainWindow::calculateSimpleDFSPath(const QPoint& start, const QPoint& end) {
+    qDebug() << "开始哈密顿路径搜索，从" << start << "到" << end;
+    
+    int gridWidth = m_gridView->gridWidth();
+    int gridHeight = m_gridView->gridHeight();
+    int totalPoints = gridWidth * gridHeight;
+    
+    qDebug() << "网格大小:" << gridWidth << "x" << gridHeight << "，总共" << totalPoints << "个点";
+    
+    // 清空队列
+    {
+        QMutexLocker locker(&m_queueMutex);
+        m_pathQueue.clear();
+        m_totalPathCount = 0;
+    }
+    
+    // 启动定时器进行实时UI更新
+    if (!m_batchTimer->isActive()) {
+        m_batchTimer->start();
+        qDebug() << "启动批处理定时器";
+    }
+    
+    QElapsedTimer timer;
+    timer.start();
+    
+    // 启动异步哈密顿路径搜索
+    findAllHamiltonianPathsAsync(start, end);
+    
+    qint64 elapsed = timer.elapsed();
+    qDebug() << "哈密顿路径搜索启动用时:" << elapsed << "ms";
+    
+    updateStatusMessage(QString("正在搜索哈密顿路径（经过所有 %1 个点）...")
+                       .arg(totalPoints));
+}
+
 // 添加针对不同算法的路径计算方法
 QVector<QPoint> MainWindow::calculatePathWithAlgorithm(const QPoint& start, const QPoint& end, AlgorithmType algorithm) {
     // 这里根据不同算法返回不同的路径
@@ -1109,9 +1086,9 @@ void MainWindow::processBatchQueue() {
     
     qDebug() << "processBatchQueue: 队列中有" << m_pathQueue.size() << "个结果";
     
-    // 每次最多处理5个结果
+    // 每次最多处理10个结果（提高批处理效率）
     QVector<PathResult> batchResults;
-    int processCount = qMin(5, m_pathQueue.size());
+    int processCount = qMin(10, m_pathQueue.size());
     
     for (int i = 0; i < processCount; ++i) {
         batchResults.append(m_pathQueue.dequeue());
@@ -1123,10 +1100,8 @@ void MainWindow::processBatchQueue() {
     locker.unlock();
     
     // 批量添加到UI
-    for (const PathResult& result : batchResults) {
-        if (m_resultList) {
-            m_resultList->addResult(result);
-        }
+    if (m_resultList && !batchResults.isEmpty()) {
+        m_resultList->addBatchResults(batchResults);
     }
     
     // 更新状态信息
@@ -1204,6 +1179,116 @@ QVector<QVector<QPoint>> MainWindow::findAllDFSPaths(const QPoint& start, const 
     dfsBacktrack(start, end, currentPath, visited, allPaths, maxDepth);
     
     return allPaths; // 不再限制路径数量
+}
+
+// 哈密顿路径搜索：找到从起点到终点并经过所有网格点的路径
+QVector<QVector<QPoint>> MainWindow::findAllHamiltonianPaths(const QPoint& start, const QPoint& end) {
+    QVector<QVector<QPoint>> allPaths;
+    QVector<QPoint> currentPath;
+    QSet<QPoint> visited;
+    
+    int gridWidth = m_gridView->gridWidth();
+    int gridHeight = m_gridView->gridHeight();
+    int totalPoints = gridWidth * gridHeight;
+    
+    qDebug() << "开始哈密顿路径搜索，总点数:" << totalPoints;
+    
+    currentPath.append(start);
+    visited.insert(start);
+    
+    hamiltonianDFS(start, end, currentPath, visited, allPaths, totalPoints);
+    
+    qDebug() << "哈密顿路径搜索完成，找到" << allPaths.size() << "条路径";
+    return allPaths;
+}
+
+// 异步哈密顿路径搜索（使用队列机制）
+void MainWindow::findAllHamiltonianPathsAsync(const QPoint& start, const QPoint& end) {
+    int gridWidth = m_gridView->gridWidth();
+    int gridHeight = m_gridView->gridHeight();
+    int totalPoints = gridWidth * gridHeight;
+    
+    qDebug() << "开始异步哈密顿路径搜索，总点数:" << totalPoints;
+    
+    QVector<QPoint> currentPath;
+    QSet<QPoint> visited;
+    
+    currentPath.append(start);
+    visited.insert(start);
+    
+    // 重置停止标志
+    m_shouldStopCalculation = false;
+    
+    hamiltonianDFSAsync(start, end, currentPath, visited, totalPoints);
+    
+    qDebug() << "异步哈密顿路径搜索启动完成";
+}
+
+// 哈密顿路径的DFS回溯实现
+void MainWindow::hamiltonianDFS(const QPoint& current, const QPoint& end, QVector<QPoint>& currentPath, 
+                               QSet<QPoint>& visited, QVector<QVector<QPoint>>& allPaths, int totalPoints) {
+    
+    // 如果当前路径已经访问了所有点，并且当前位置是终点
+    if (visited.size() == totalPoints && current == end) {
+        allPaths.append(currentPath);
+        qDebug() << "找到哈密顿路径，长度:" << currentPath.size();
+        return;
+    }
+    
+    // 如果已经访问了所有点但不在终点，返回
+    if (visited.size() == totalPoints) {
+        return;
+    }
+    
+    // 如果找到的路径数量过多，可以适当限制（可选）
+    if (allPaths.size() >= 1000) { // 增加到1000条路径限制
+        return;
+    }
+    
+    // 获取相邻的有效位置
+    QVector<QPoint> neighbors = getValidNeighbors(current);
+    
+    for (const QPoint& neighbor : neighbors) {
+        if (!visited.contains(neighbor)) {
+            // 选择这个邻居
+            currentPath.append(neighbor);
+            visited.insert(neighbor);
+            
+            // 递归搜索
+            hamiltonianDFS(neighbor, end, currentPath, visited, allPaths, totalPoints);
+            
+            // 回溯
+            currentPath.removeLast();
+            visited.remove(neighbor);
+        }
+    }
+}
+
+// 获取指定点的有效邻居点（上下左右四个方向）
+QVector<QPoint> MainWindow::getValidNeighbors(const QPoint& point) {
+    QVector<QPoint> neighbors;
+    int gridWidth = m_gridView->gridWidth();
+    int gridHeight = m_gridView->gridHeight();
+    
+    // 四个方向：上、下、左、右
+    QVector<QPoint> directions = {
+        QPoint(0, -1),  // 上
+        QPoint(0, 1),   // 下
+        QPoint(-1, 0),  // 左
+        QPoint(1, 0)    // 右
+    };
+    
+    for (const QPoint& dir : directions) {
+        QPoint neighbor = point + dir;
+        
+        // 检查是否在网格范围内
+        if (neighbor.x() >= 0 && neighbor.x() < gridWidth &&
+            neighbor.y() >= 0 && neighbor.y() < gridHeight) {
+            neighbors.append(neighbor);
+        }
+    }
+    
+    return neighbors;
 }
 
 // DFS回溯核心算法
@@ -1430,6 +1515,70 @@ void MainWindow::dfsBacktrackProgressive(const QPoint& current, const QPoint& en
             dfsBacktrackProgressive(neighbor, end, currentPath, visited, algorithm, startPoint, maxDepth);
             
             // 回溯：撤销选择
+            currentPath.removeLast();
+            visited.remove(neighbor);
+        }
+    }
+}
+
+// 异步哈密顿路径的DFS回溯实现（使用队列机制）
+void MainWindow::hamiltonianDFSAsync(const QPoint& current, const QPoint& end, QVector<QPoint>& currentPath, 
+                                     QSet<QPoint>& visited, int totalPoints) {
+    
+    // 检查是否应该停止计算
+    if (m_shouldStopCalculation || m_totalPathCount >= MAX_PATHS) {
+        return;
+    }
+    
+    // 如果当前路径已经访问了所有点，并且当前位置是终点
+    if (visited.size() == totalPoints && current == end) {
+        PathResult result;
+        result.setAlgorithm(AlgorithmType::DFS);
+        result.setStartPoint(currentPath.first());
+        result.setEndPoint(end);
+        result.setPath(currentPath);
+        result.setCalculationTime(1); // 临时设置，实际时间可以后续计算
+        result.setTimestamp(QDateTime::currentDateTime());
+        
+        // 线程安全地添加到队列
+        {
+            QMutexLocker locker(&m_queueMutex);
+            m_pathQueue.enqueue(result);
+            m_totalPathCount++;
+            qDebug() << "哈密顿路径已添加到队列，队列大小:" << m_pathQueue.size() << "总路径数:" << m_totalPathCount;
+        }
+        
+        return;
+    }
+    
+    // 如果已经访问了所有点但不在终点，返回
+    if (visited.size() == totalPoints) {
+        return;
+    }
+    
+    // 如果找到的路径数量过多，限制搜索
+    if (m_totalPathCount >= 1000) {
+        return;
+    }
+    
+    // 获取相邻的有效位置
+    QVector<QPoint> neighbors = getValidNeighbors(current);
+    
+    for (const QPoint& neighbor : neighbors) {
+        // 检查停止条件
+        if (m_shouldStopCalculation || m_totalPathCount >= MAX_PATHS) {
+            return;
+        }
+        
+        if (!visited.contains(neighbor)) {
+            // 选择这个邻居
+            currentPath.append(neighbor);
+            visited.insert(neighbor);
+            
+            // 递归搜索
+            hamiltonianDFSAsync(neighbor, end, currentPath, visited, totalPoints);
+            
+            // 回溯
             currentPath.removeLast();
             visited.remove(neighbor);
         }

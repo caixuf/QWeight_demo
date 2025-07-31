@@ -117,6 +117,7 @@ void GridGraphicsView::clearGrid() {
         m_gridData.clear();
         m_pointItems.clear();
         m_gridLines.clear();
+        m_pathLines.clear();  // 清空路径线条容器
         
         m_startPoint = QPoint(-1, -1);
         m_endPoint = QPoint(-1, -1);

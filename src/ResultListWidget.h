@@ -2,17 +2,6 @@
 #define RESULTLISTWIDGET_H
 
 #include "Common.h"
-    enum ColumnIndex {
-        COL_INDEX = 0,      // 序号
-        COL_ALGORITHM,      // 算法
-        COL_START_POINT,    // 起点
-        COL_END_POINT,      // 终点
-        COL_PATH_LENGTH,    // 步数
-        COL_CALC_TIME,      // 耗时
-        COL_TIMESTAMP,      // 时间
-        COL_COUNT
-    };
-
 #include "PathResult.h"
 #include <QWidget>
 #include <QTableView>
@@ -35,6 +24,7 @@ public:
     void addResult(const PathResult& result);
     void clearResults();
     void removeSelectedResults();
+    void recreateTable();  // 新增：完全重新创建表格
     
     // 获取结果
     QVector<PathResult> getAllResults() const;
@@ -43,6 +33,16 @@ public:
     
     // 设置结果列表
     void setResults(const QVector<PathResult>& results);
+    
+    // 批量添加结果
+    void addBatchResults(const QVector<PathResult>& results);
+    
+    // 调整列宽自适应
+    void resizeColumnsToContents();
+
+protected:
+    // 重写窗口大小变化事件
+    void resizeEvent(QResizeEvent* event) override;
 
 signals:
     void resultDoubleClicked(const PathResult& result);
@@ -92,14 +92,13 @@ private:
     
     // 表格列定义
     enum TableColumns {
-        COL_INDEX = 0,
-        COL_ALGORITHM,
-        COL_START_POINT,
-        COL_END_POINT,
-        COL_PATH,           // 路径（箭头形式）
-        COL_PATH_LENGTH,
-        COL_CALC_TIME,
-        COL_TIMESTAMP,
+        COL_INDEX = 0,      // 序号
+        COL_ALGORITHM,      // 算法
+        COL_START_POINT,    // 起点
+        COL_END_POINT,      // 终点
+        COL_PATH_LENGTH,    // 步数
+        COL_CALC_TIME,      // 耗时
+        COL_TIMESTAMP,      // 时间
         COL_COUNT
     };
 };

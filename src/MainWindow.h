@@ -83,6 +83,7 @@ private:
     
     // 路径计算辅助方法
     QVector<QPoint> calculateSimplePath(const QPoint& start, const QPoint& end);
+    void calculateSimpleDFSPath(const QPoint& start, const QPoint& end);  // 新增简单DFS方法
     QVector<QPoint> calculatePathWithAlgorithm(const QPoint& start, const QPoint& end, AlgorithmType algorithm);
     QVector<QVector<QPoint>> calculateAllPossiblePaths(const QPoint& start, const QPoint& end, AlgorithmType algorithm);
     QVector<QPoint> calculatePathVariant(const QPoint& start, const QPoint& end, int variant);
@@ -93,6 +94,13 @@ private:
     
     // DFS回溯算法相关方法
     QVector<QVector<QPoint>> findAllDFSPaths(const QPoint& start, const QPoint& end);
+    QVector<QVector<QPoint>> findAllHamiltonianPaths(const QPoint& start, const QPoint& end);  // 哈密顿路径搜索
+    void findAllHamiltonianPathsAsync(const QPoint& start, const QPoint& end);  // 异步哈密顿路径搜索
+    void hamiltonianDFS(const QPoint& current, const QPoint& end, QVector<QPoint>& currentPath, 
+                       QSet<QPoint>& visited, QVector<QVector<QPoint>>& allPaths, int totalPoints);
+    void hamiltonianDFSAsync(const QPoint& current, const QPoint& end, QVector<QPoint>& currentPath, 
+                            QSet<QPoint>& visited, int totalPoints);  // 异步哈密顿DFS
+    QVector<QPoint> getValidNeighbors(const QPoint& point);  // 获取有效邻居点
     void dfsBacktrack(const QPoint& current, const QPoint& end, QVector<QPoint>& currentPath, 
                       QSet<QPoint>& visited, QVector<QVector<QPoint>>& allPaths, int maxDepth = 50);
     void calculateAllDFSPathsProgressive(const QPoint& start, const QPoint& end, AlgorithmType algorithm);
