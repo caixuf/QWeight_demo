@@ -23,6 +23,13 @@ MainWindow::MainWindow(QWidget* parent)
     qDebug() << "MainWindow构造函数开始...";
     
     try {
+        qDebug() << "初始化数据管理器...";
+        m_dataManager = new DataManager(this);
+        connect(m_dataManager, &DataManager::operationFinished,
+                this, &MainWindow::onDataOperationFinished);
+        connect(m_dataManager, &DataManager::progressChanged,
+                this, &MainWindow::onDataProgress);
+        
         qDebug() << "设置UI...";
         setupUI();
         
@@ -137,7 +144,46 @@ void MainWindow::setupMenuBar() {
     try {
         m_menuBar = menuBar();
         m_fileMenu = m_menuBar->addMenu("文件(&F)");
-        m_fileMenu->addAction("退出", this, &QWidget::close);
+        
+        // 创建菜单动作
+        m_openAction = new QAction("打开数据文件(&O)", this);
+        m_openAction->setShortcut(QKeySequence::Open);
+        m_openAction->setStatusTip("打开保存的路径计算结果");
+        
+        m_saveXmlAction = new QAction("保存为XML(&X)", this);
+        m_saveXmlAction->setShortcut(QKeySequence("Ctrl+Shift+X"));
+        m_saveXmlAction->setStatusTip("将结果保存为XML格式");
+        
+        m_saveSqliteAction = new QAction("保存为SQLite(&S)", this);
+        m_saveSqliteAction->setShortcut(QKeySequence("Ctrl+Shift+S"));
+        m_saveSqliteAction->setStatusTip("将结果保存为SQLite数据库");
+        
+        m_saveCsvAction = new QAction("保存为CSV(&C)", this);
+        m_saveCsvAction->setShortcut(QKeySequence("Ctrl+Shift+C"));
+        m_saveCsvAction->setStatusTip("将结果导出为CSV格式");
+        
+        m_exitAction = new QAction("退出(&Q)", this);
+        m_exitAction->setShortcut(QKeySequence::Quit);
+        m_exitAction->setStatusTip("退出应用程序");
+        
+        // 添加到菜单
+        m_fileMenu->addAction(m_openAction);
+        m_fileMenu->addSeparator();
+        m_fileMenu->addAction(m_saveXmlAction);
+        m_fileMenu->addAction(m_saveSqliteAction);
+        m_fileMenu->addAction(m_saveCsvAction);
+        m_fileMenu->addSeparator();
+        m_fileMenu->addAction(m_exitAction);
+        
+        // 连接信号
+        connect(m_openAction, &QAction::triggered, this, &MainWindow::onOpenDataFile);
+        connect(m_saveXmlAction, &QAction::triggered, this, &MainWindow::onSaveToXml);
+        connect(m_saveSqliteAction, &QAction::triggered, this, &MainWindow::onSaveToSqlite);
+        connect(m_saveCsvAction, &QAction::triggered, this, &MainWindow::onSaveToCsv);
+        connect(m_exitAction, &QAction::triggered, this, &QWidget::close);
+        
+        // 初始状态设置
+        updateMenuStates();
         
         qDebug() << "setupMenuBar 完成";
     } catch (const std::exception& e) {
@@ -195,12 +241,20 @@ void MainWindow::setupConnections() {
                     this, &MainWindow::onStopCalculation);
             connect(m_controlPanel, &ControlPanel::resetCalculation,
                     this, &MainWindow::onResetCalculation);
+            connect(m_controlPanel, &ControlPanel::saveToXml,
+                    this, &MainWindow::onSaveToXml);
+            connect(m_controlPanel, &ControlPanel::saveToSqlite,
+                    this, &MainWindow::onSaveToSqlite);
         }
         
         // 结果列表连接
         if (m_resultList) {
             connect(m_resultList, &ResultListWidget::resultDoubleClicked,
                     this, &MainWindow::onResultDoubleClicked);
+            connect(m_resultList, &ResultListWidget::exportResults,
+                    this, &MainWindow::onExportResults);
+            connect(m_resultList, &ResultListWidget::resultsChanged,
+                    this, &MainWindow::updateMenuStates);
         }
         
         // 批量结果信号连接
@@ -1031,27 +1085,128 @@ void MainWindow::onResetCalculation() {
 }
 
 void MainWindow::onSaveToXml() {
+    qDebug() << "onSaveToXml() 被调用";
+    if (!m_resultList) return;
+    
+    // 获取选中的结果，如果没有选中则获取所有结果
+    QVector<PathResult> results = m_resultList->getSelectedResults();
+    qDebug() << "选中的结果数量:" << results.size();
+    if (results.isEmpty()) {
+        results = m_resultList->getAllResults();
+        qDebug() << "所有结果数量:" << results.size();
+        if (results.isEmpty()) {
+            QMessageBox::information(this, "提示", "没有可保存的结果数据");
+            return;
+        }
+        QMessageBox::information(this, "提示", 
+            QString("没有选中任何结果，将保存所有 %1 条结果").arg(results.size()));
+    } else {
+        int ret = QMessageBox::question(this, "确认保存", 
+            QString("确定要保存选中的 %1 条结果到XML文件吗？").arg(results.size()),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (ret != QMessageBox::Yes) return;
+    }
+    
+    QString defaultFile = m_dataManager->getDefaultXmlFile();
     QString fileName = QFileDialog::getSaveFileName(
-        this, "保存到XML文件",
-        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/path_results.xml",
-        "XML文件 (*.xml)");
+        this,
+        "保存为XML文件",
+        defaultFile,
+        "XML文件 (*.xml)"
+    );
     
     if (!fileName.isEmpty()) {
-        // 这里将来会实现XML保存逻辑
-        updateStatusMessage("结果已保存到XML文件: " + fileName);
+        qDebug() << "开始保存XML文件到:" << fileName;
+        qDebug() << "选中的结果数量:" << results.size();
+        bool success = m_dataManager->saveToXml(fileName, results);
+        qDebug() << "XML保存结果:" << success;
     }
 }
 
 void MainWindow::onSaveToSqlite() {
+    qDebug() << "onSaveToSqlite() 被调用";
+    if (!m_resultList) return;
+    
+    // 获取选中的结果，如果没有选中则获取所有结果
+    QVector<PathResult> results = m_resultList->getSelectedResults();
+    qDebug() << "选中的结果数量:" << results.size();
+    if (results.isEmpty()) {
+        results = m_resultList->getAllResults();
+        qDebug() << "所有结果数量:" << results.size();
+        if (results.isEmpty()) {
+            QMessageBox::information(this, "提示", "没有可保存的结果数据");
+            return;
+        }
+        QMessageBox::information(this, "提示", 
+            QString("没有选中任何结果，将保存所有 %1 条结果").arg(results.size()));
+    } else {
+        int ret = QMessageBox::question(this, "确认保存", 
+            QString("确定要保存选中的 %1 条结果到SQLite数据库吗？").arg(results.size()),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (ret != QMessageBox::Yes) return;
+    }
+    
+    QString defaultFile = m_dataManager->getDefaultSqliteFile();
     QString fileName = QFileDialog::getSaveFileName(
-        this, "保存到SQLite数据库",
-        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/path_results.db",
-        "SQLite数据库 (*.db)");
+        this,
+        "保存为SQLite数据库",
+        defaultFile,
+        "SQLite数据库 (*.db *.sqlite)"
+    );
     
     if (!fileName.isEmpty()) {
-        // 这里将来会实现SQLite保存逻辑
-        updateStatusMessage("结果已保存到SQLite数据库: " + fileName);
+        qDebug() << "开始保存SQLite文件到:" << fileName;
+        qDebug() << "选中的结果数量:" << results.size();
+        bool success = m_dataManager->saveToSqlite(fileName, results);
+        qDebug() << "SQLite保存结果:" << success;
     }
+}
+
+void MainWindow::onSaveToCsv() {
+    if (!m_resultList) return;
+    
+    // 获取选中的结果，如果没有选中则获取所有结果
+    QVector<PathResult> results = m_resultList->getSelectedResults();
+    if (results.isEmpty()) {
+        results = m_resultList->getAllResults();
+        if (results.isEmpty()) {
+            QMessageBox::information(this, "提示", "没有可保存的结果数据");
+            return;
+        }
+        QMessageBox::information(this, "提示", 
+            QString("没有选中任何结果，将导出所有 %1 条结果").arg(results.size()));
+    } else {
+        int ret = QMessageBox::question(this, "确认导出", 
+            QString("确定要导出选中的 %1 条结果到CSV文件吗？").arg(results.size()),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (ret != QMessageBox::Yes) return;
+    }
+    
+    QString defaultFile = m_dataManager->getDefaultCsvFile();
+    QString fileName = QFileDialog::getSaveFileName(
+        this,
+        "导出为CSV文件",
+        defaultFile,
+        "CSV文件 (*.csv)"
+    );
+    
+    if (!fileName.isEmpty()) {
+        m_dataManager->saveToCsv(fileName, results);
+    }
+}
+
+void MainWindow::onDataOperationFinished(bool success, const QString& message) {
+    if (success) {
+        updateStatusMessage(message);
+        updateMenuStates();
+    } else {
+        QMessageBox::warning(this, "操作失败", message);
+        updateStatusMessage("操作失败: " + message);
+    }
+}
+
+void MainWindow::onDataProgress(int percentage) {
+    updateStatusMessage(QString("处理进度: %1%").arg(percentage));
 }
 
 void MainWindow::onResultDoubleClicked(const PathResult& result) {
@@ -1114,15 +1269,9 @@ void MainWindow::onDeleteSelectedResults() {
 }
 
 void MainWindow::onExportResults() {
-    QString fileName = QFileDialog::getSaveFileName(
-        this, "导出结果",
-        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/exported_results.csv",
-        "CSV文件 (*.csv)");
-    
-    if (!fileName.isEmpty()) {
-        // 这里将来会实现CSV导出逻辑
-        updateStatusMessage("结果已导出到: " + fileName);
-    }
+    qDebug() << "MainWindow::onExportResults() 被调用";
+    // 直接调用CSV保存功能
+    onSaveToCsv();
 }
 
 void MainWindow::onOpenXmlFile() {
@@ -1581,6 +1730,66 @@ void MainWindow::hamiltonianDFSAsync(const QPoint& current, const QPoint& end, Q
             // 回溯
             currentPath.removeLast();
             visited.remove(neighbor);
+        }
+    }
+}
+
+// 数据管理相关方法实现
+void MainWindow::updateMenuStates() {
+    bool hasResults = m_resultList && !m_resultList->getAllResults().isEmpty();
+    
+    if (m_saveXmlAction) m_saveXmlAction->setEnabled(hasResults);
+    if (m_saveSqliteAction) m_saveSqliteAction->setEnabled(hasResults);
+    if (m_saveCsvAction) m_saveCsvAction->setEnabled(hasResults);
+}
+
+void MainWindow::onOpenDataFile() {
+    QString dataDir = m_dataManager->getDataDirectory();
+    QString fileName = QFileDialog::getOpenFileName(
+        this,
+        "打开数据文件",
+        dataDir,
+        "所有支持的格式 (*.xml *.db *.sqlite *.sqlite3);;XML文件 (*.xml);;SQLite数据库 (*.db *.sqlite *.sqlite3)"
+    );
+    
+    if (!fileName.isEmpty()) {
+        QVector<PathResult> results = m_dataManager->loadFromFile(fileName);
+        if (!results.isEmpty()) {
+            // 从路径结果中推断矩阵大小
+            int maxX = 0, maxY = 0;
+            for (const PathResult& result : results) {
+                for (const QPoint& point : result.path()) {
+                    maxX = qMax(maxX, point.x());
+                    maxY = qMax(maxY, point.y());
+                }
+                // 也检查起点和终点
+                maxX = qMax(maxX, qMax(result.startPoint().x(), result.endPoint().x()));
+                maxY = qMax(maxY, qMax(result.startPoint().y(), result.endPoint().y()));
+            }
+            
+            // 设置矩阵大小（加1因为坐标从0开始）
+            int gridWidth = maxX + 1;
+            int gridHeight = maxY + 1;
+            
+            qDebug() << "从文件推断矩阵大小: " << gridWidth << "x" << gridHeight;
+            
+            // 更新控制面板的矩阵大小设置
+            if (m_controlPanel) {
+                m_controlPanel->setGridSize(gridWidth, gridHeight);
+            }
+            
+            // 应用新的矩阵大小
+            onApplyGridSize();
+            
+            // 重新创建表格并加载数据
+            m_resultList->recreateTable();
+            m_resultList->addBatchResults(results);
+            updateMenuStates();
+            
+            updateStatusMessage(QString("成功加载 %1 条路径结果，矩阵大小: %2x%3")
+                .arg(results.size()).arg(gridWidth).arg(gridHeight));
+        } else {
+            QMessageBox::warning(this, "加载失败", "文件中没有找到有效的路径结果数据");
         }
     }
 }

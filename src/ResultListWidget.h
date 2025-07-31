@@ -3,6 +3,7 @@
 
 #include "Common.h"
 #include "PathResult.h"
+#include "PathVisualWidget.h"
 #include <QWidget>
 #include <QTableView>
 #include <QStandardItemModel>
@@ -29,6 +30,7 @@ public:
     // 获取结果
     QVector<PathResult> getAllResults() const;
     PathResult getSelectedResult() const;
+    QVector<PathResult> getSelectedResults() const;  // 新增：获取所有选中的结果
     bool hasSelection() const;
     
     // 设置结果列表
@@ -49,6 +51,7 @@ signals:
     void resultSelectionChanged(const PathResult& result);
     void deleteSelectedResults();
     void exportResults();
+    void resultsChanged(); // 新增：当结果数据发生变化时发出
 
 private slots:
     void onItemDoubleClicked(int row, int column);
@@ -66,7 +69,6 @@ private:
     void setupConnections();
     void updateResultRow(int row, const PathResult& result);
     void updateButtonStates();
-    QString formatPathAsArrows(const QVector<QPoint>& path) const;
     
     QVBoxLayout* m_mainLayout;
     QTableView* m_tableView;
@@ -97,6 +99,7 @@ private:
         COL_START_POINT,    // 起点
         COL_END_POINT,      // 终点
         COL_PATH_LENGTH,    // 步数
+        COL_PATH_VISUAL,    // 路径可视化
         COL_CALC_TIME,      // 耗时
         COL_TIMESTAMP,      // 时间
         COL_COUNT

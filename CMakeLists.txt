@@ -27,11 +27,14 @@ qt6_standard_project_setup()
 # Source files
 set(SOURCES
     src/main.cpp
+    src/ArrowGraphicsItem.cpp
+    src/ArrowRenderer.cpp
     src/MainWindow.cpp
     src/GridGraphicsView.cpp
     src/ControlPanel.cpp
     src/ResultListWidget.cpp
     src/PathCalculator.cpp
+    src/PathVisualWidget.cpp
     src/DataManager.cpp
     src/HistoryManager.cpp
     src/GridPoint.cpp
@@ -41,11 +44,14 @@ set(SOURCES
 
 # Header files
 set(HEADERS
+    src/ArrowGraphicsItem.h
+    src/ArrowRenderer.h
     src/MainWindow.h
     src/GridGraphicsView.h
     src/ControlPanel.h
     src/ResultListWidget.h
     src/PathCalculator.h
+    src/PathVisualWidget.h
     src/DataManager.h
     src/HistoryManager.h
     src/GridPoint.h

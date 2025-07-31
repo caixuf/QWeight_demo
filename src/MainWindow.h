@@ -6,6 +6,7 @@
 #include "ControlPanel.h"
 #include "ResultListWidget.h"
 #include "PathResult.h"
+#include "DataManager.h"
 #include <QMainWindow>
 #include <QSplitter>
 #include <QVBoxLayout>
@@ -19,6 +20,8 @@
 #include <QTimer>
 #include <QQueue>
 #include <QMutex>
+#include <QFileDialog>
+#include <QMessageBox>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -66,6 +69,12 @@ private slots:
     void onOpenXmlFile();
     void onOpenSqliteFile();
     void onClearCurrentResults();
+    
+    // 数据管理相关槽函数
+    void onOpenDataFile();
+    void onSaveToCsv();
+    void onDataOperationFinished(bool success, const QString& message);
+    void onDataProgress(int percentage);
 
 private:
     void setupUI();
@@ -75,6 +84,7 @@ private:
     void setupHistoryBar();
     void setupConnections();
     void setupStyles();
+    void updateMenuStates();
     
     void updateStatusMessage(const QString& message);
     void showCalculationProgress(bool show);
@@ -133,6 +143,16 @@ private:
     QMenu* m_editMenu;
     QMenu* m_viewMenu;
     QMenu* m_helpMenu;
+    
+    // 菜单动作
+    QAction* m_openAction;
+    QAction* m_saveXmlAction;
+    QAction* m_saveSqliteAction;
+    QAction* m_saveCsvAction;
+    QAction* m_exitAction;
+    
+    // 数据管理
+    DataManager* m_dataManager;
     
     // 状态栏
     QStatusBar* m_statusBar;

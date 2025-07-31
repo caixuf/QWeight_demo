@@ -117,7 +117,7 @@ void GridGraphicsView::clearGrid() {
         m_gridData.clear();
         m_pointItems.clear();
         m_gridLines.clear();
-        m_pathLines.clear();  // 清空路径线条容器
+        m_pathArrows.clear();  // 清空路径箭头容器
         
         m_startPoint = QPoint(-1, -1);
         m_endPoint = QPoint(-1, -1);
@@ -257,14 +257,14 @@ void GridGraphicsView::clearPath() {
             return;
         }
         
-        // 清理路径线条
-        for (auto& line : m_pathLines) {
-            if (line) {
-                m_scene->removeItem(line);
-                delete line;
+        // 清理路径箭头
+        for (ArrowGraphicsItem* arrow : m_pathArrows) {
+            if (arrow) {
+                m_scene->removeItem(arrow);
+                delete arrow;
             }
         }
-        m_pathLines.clear();
+        m_pathArrows.clear();
         
         // 重置路径点的颜色
         for (int y = 0; y < m_gridHeight; ++y) {
@@ -287,7 +287,7 @@ void GridGraphicsView::clearPath() {
 void GridGraphicsView::drawArrow(const QPointF& start, const QPointF& end, const QPen& pen) {
     if (!m_scene) return;
     
-    // 计算方向向量
+    // 计算方向向量和距离
     QPointF direction = end - start;
     double length = sqrt(direction.x() * direction.x() + direction.y() * direction.y());
     if (length == 0) return;
@@ -300,40 +300,32 @@ void GridGraphicsView::drawArrow(const QPointF& start, const QPointF& end, const
     QPointF adjustedStart = start + direction * radius;
     QPointF adjustedEnd = end - direction * radius;
     
-    // 绘制主线条
-    QGraphicsLineItem* line = m_scene->addLine(adjustedStart.x(), adjustedStart.y(), 
-                                               adjustedEnd.x(), adjustedEnd.y(), pen);
-    m_pathLines.append(line);
+    // 创建美化的箭头图形项
+    ArrowGraphicsItem* arrowItem = new ArrowGraphicsItem(adjustedStart, adjustedEnd, pen);
     
-    // 计算箭头方向角度
-    double angle = atan2(direction.y(), direction.x());
+    // 设置箭头样式 - 根据pen颜色选择合适的样式
+    ArrowRenderer::ArrowStyle style;
+    if (pen.color() == Qt::red) {
+        style = ArrowRenderer::createRedStyle();
+    } else if (pen.color() == Qt::blue) {
+        style = ArrowRenderer::createBlueStyle();
+    } else if (pen.color() == QColor(255, 215, 0)) { // Gold
+        style = ArrowRenderer::createGoldStyle();
+    } else {
+        style = ArrowRenderer::createGreenStyle();
+    }
     
-    // 箭头大小根据圆圈大小动态调整
-    double arrowLength = radius * 0.8; // 箭头长度为圆半径的80%
-    double arrowDegrees = M_PI / 5; // 36度，更尖锐的箭头
+    // 调整样式以适应场景显示
+    style.color = QColor(144, 238, 144, 200);  // 统一使用浅绿色
+    style.outlineColor = QColor(60, 179, 113);  // 中等海绿色边框
+    style.outlineWidth = 1.0;
+    style.widthRatio = 1.0 / 4.0;  // 更大的宽度比例，让箭头更明显
     
-    // 计算箭头两个端点
-    QPointF arrowP1 = adjustedEnd + QPointF(
-        arrowLength * cos(angle + M_PI - arrowDegrees),
-        arrowLength * sin(angle + M_PI - arrowDegrees)
-    );
+    arrowItem->setArrowStyle(style);
     
-    QPointF arrowP2 = adjustedEnd + QPointF(
-        arrowLength * cos(angle + M_PI + arrowDegrees),
-        arrowLength * sin(angle + M_PI + arrowDegrees)
-    );
-    
-    // 绘制箭头的两条边，使用更粗的线条
-    QPen arrowPen = pen;
-    arrowPen.setWidth(pen.width() + 1);
-    
-    QGraphicsLineItem* arrowLine1 = m_scene->addLine(adjustedEnd.x(), adjustedEnd.y(), 
-                                                     arrowP1.x(), arrowP1.y(), arrowPen);
-    QGraphicsLineItem* arrowLine2 = m_scene->addLine(adjustedEnd.x(), adjustedEnd.y(), 
-                                                     arrowP2.x(), arrowP2.y(), arrowPen);
-    
-    m_pathLines.append(arrowLine1);
-    m_pathLines.append(arrowLine2);
+    // 添加到场景和列表
+    m_scene->addItem(arrowItem);
+    m_pathArrows.append(arrowItem);
 }
 
 void GridGraphicsView::setStartPoint(const QPoint& point) {

@@ -17,6 +17,8 @@ DEFINES += QT_DEPRECATED_WARNINGS
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 SOURCES += \
+    src/ArrowGraphicsItem.cpp \
+    src/ArrowRenderer.cpp \
     src/Common.cpp \
     src/DataManager.cpp \
     src/GridGraphicsView.cpp \
@@ -25,11 +27,14 @@ SOURCES += \
     src/MainWindow.cpp \
     src/PathCalculator.cpp \
     src/PathResult.cpp \
+    src/PathVisualWidget.cpp \
     src/ResultListWidget.cpp \
     src/ControlPanel.cpp \
     src/main.cpp
 
 HEADERS += \
+    src/ArrowGraphicsItem.h \
+    src/ArrowRenderer.h \
     src/Common.h \
     src/DataManager.h \
     src/GridGraphicsView.h \
@@ -38,6 +43,7 @@ HEADERS += \
     src/MainWindow.h \
     src/PathCalculator.h \
     src/PathResult.h \
+    src/PathVisualWidget.h \
     src/ResultListWidget.h \
     src/ControlPanel.h
 

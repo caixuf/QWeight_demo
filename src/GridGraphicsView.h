@@ -3,6 +3,8 @@
 
 #include "Common.h"
 #include "GridPoint.h"
+#include "ArrowRenderer.h"
+#include "ArrowGraphicsItem.h"
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QGraphicsEllipseItem>
@@ -76,7 +78,7 @@ private:
     // 图形项
     QVector<QVector<QGraphicsEllipseItem*>> m_pointItems;
     QVector<QGraphicsLineItem*> m_gridLines;
-    QVector<QGraphicsLineItem*> m_pathLines;
+    QVector<ArrowGraphicsItem*> m_pathArrows;  // 改为箭头图形项
     
     // 起点终点
     QPoint m_startPoint;
