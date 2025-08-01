@@ -23,6 +23,7 @@ public:
     int getGridWidth() const;
     int getGridHeight() const;
     AlgorithmType getSelectedAlgorithm() const;
+    AlgorithmType getCurrentAlgorithm() const { return getSelectedAlgorithm(); }  // 添加别名
     
     // 设置控件状态
     void setCalculationState(CalculationState state);

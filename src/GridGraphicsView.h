@@ -37,6 +37,9 @@ public:
     int gridWidth() const { return m_gridWidth; }
     int gridHeight() const { return m_gridHeight; }
     
+    // 获取网格数据
+    const QVector<QVector<GridPoint>>& getGrid() const { return m_gridData; }
+    
     // 起点终点操作
     void setStartPoint(const QPoint& point);
     void setEndPoint(const QPoint& point);

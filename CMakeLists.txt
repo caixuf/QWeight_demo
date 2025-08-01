@@ -34,6 +34,7 @@ set(SOURCES
     src/ControlPanel.cpp
     src/ResultListWidget.cpp
     src/PathCalculator.cpp
+    src/AsyncPathCalculator.cpp
     src/PathVisualWidget.cpp
     src/DataManager.cpp
     src/HistoryManager.cpp
@@ -51,6 +52,7 @@ set(HEADERS
     src/ControlPanel.h
     src/ResultListWidget.h
     src/PathCalculator.h
+    src/AsyncPathCalculator.h
     src/PathVisualWidget.h
     src/DataManager.h
     src/HistoryManager.h

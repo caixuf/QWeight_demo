@@ -19,6 +19,7 @@ DEFINES += QT_DEPRECATED_WARNINGS
 SOURCES += \
     src/ArrowGraphicsItem.cpp \
     src/ArrowRenderer.cpp \
+    src/AsyncPathCalculator.cpp \
     src/Common.cpp \
     src/DataManager.cpp \
     src/GridGraphicsView.cpp \
@@ -35,6 +36,7 @@ SOURCES += \
 HEADERS += \
     src/ArrowGraphicsItem.h \
     src/ArrowRenderer.h \
+    src/AsyncPathCalculator.h \
     src/Common.h \
     src/DataManager.h \
     src/GridGraphicsView.h \

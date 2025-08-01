@@ -22,6 +22,7 @@ public:
     QPoint startPoint() const { return m_startPoint; }
     QPoint endPoint() const { return m_endPoint; }
     QVector<QPoint> path() const { return m_path; }
+    QVector<QPoint> getPath() const { return m_path; } // 为兼容性添加
     AlgorithmType algorithm() const { return m_algorithm; }
     QString algorithmString() const { return algorithmTypeToString(m_algorithm); }
     int pathLength() const { return m_path.size(); }

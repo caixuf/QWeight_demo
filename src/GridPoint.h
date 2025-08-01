@@ -16,6 +16,10 @@ public:
     PointType type() const { return m_type; }
     bool isVisited() const { return m_visited; }
     
+    // 路径计算相关方法
+    double getWeight() const;
+    bool isWalkable() const;
+    
     // Setter方法
     void setPosition(int x, int y) { m_position = QPoint(x, y); }
     void setPosition(const QPoint& pos) { m_position = pos; }

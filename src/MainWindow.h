@@ -7,6 +7,7 @@
 #include "ResultListWidget.h"
 #include "PathResult.h"
 #include "DataManager.h"
+#include "AsyncPathCalculator.h"
 #include <QMainWindow>
 #include <QSplitter>
 #include <QVBoxLayout>
@@ -75,6 +76,15 @@ private slots:
     void onSaveToCsv();
     void onDataOperationFinished(bool success, const QString& message);
     void onDataProgress(int percentage);
+    
+    // 异步计算器相关槽函数
+    void onAsyncPathFound(const PathResult& result, int taskId);
+    void onAsyncPartialPathFound(const PathResult& result, int taskId);
+    void onAsyncPathNotFound(int taskId);
+    void onAsyncCalculationProgress(int taskId, int percentage);
+    void onAsyncCalculationStarted(int taskId);
+    void onAsyncCalculationFinished(int taskId);
+    void onAsyncAllCalculationsFinished();
 
 private:
     void setupUI();
@@ -154,6 +164,11 @@ private:
     // 数据管理
     DataManager* m_dataManager;
     
+    // 异步路径计算器
+    AsyncPathCalculator* m_asyncCalculator;
+    QMap<int, AlgorithmType> m_activeTaskAlgorithms;  // 跟踪活动任务的算法类型
+    QMap<int, QString> m_activeTaskNames;  // 跟踪活动任务的名称
+    
     // 状态栏
     QStatusBar* m_statusBar;
     QLabel* m_statusLabel;
@@ -175,7 +190,7 @@ private:
     bool m_isCalculating;
     bool m_shouldStopCalculation;
     int m_totalPathCount;  // 总路径计数器
-    static const int MAX_PATHS = 1000;  // 哈密顿路径数量限制
+    static const int MAX_PATHS = 400;  // 哈密顿路径数量限制增加到400
     
     // 批量处理队列系统
     QQueue<PathResult> m_pathQueue;  // 路径结果队列

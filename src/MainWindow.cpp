@@ -30,6 +30,26 @@ MainWindow::MainWindow(QWidget* parent)
         connect(m_dataManager, &DataManager::progressChanged,
                 this, &MainWindow::onDataProgress);
         
+        qDebug() << "初始化异步路径计算器...";
+        m_asyncCalculator = new AsyncPathCalculator(this);
+        connect(m_asyncCalculator, &AsyncPathCalculator::pathFound,
+                this, &MainWindow::onAsyncPathFound);
+        connect(m_asyncCalculator, &AsyncPathCalculator::partialPathFound,
+                this, &MainWindow::onAsyncPartialPathFound);
+        connect(m_asyncCalculator, &AsyncPathCalculator::pathNotFound,
+                this, &MainWindow::onAsyncPathNotFound);
+        connect(m_asyncCalculator, &AsyncPathCalculator::calculationProgress,
+                this, &MainWindow::onAsyncCalculationProgress);
+        connect(m_asyncCalculator, &AsyncPathCalculator::calculationStarted,
+                this, &MainWindow::onAsyncCalculationStarted);
+        connect(m_asyncCalculator, &AsyncPathCalculator::calculationFinished,
+                this, &MainWindow::onAsyncCalculationFinished);
+        connect(m_asyncCalculator, &AsyncPathCalculator::allCalculationsFinished,
+                this, &MainWindow::onAsyncAllCalculationsFinished);
+        
+        // 启动结果检查定时器（每100ms检查一次）
+        m_asyncCalculator->startResultChecker(100);
+        
         qDebug() << "设置UI...";
         setupUI();
         
@@ -441,35 +461,27 @@ void MainWindow::onStartCalculation() {
     m_resultList->clearResults();
     m_gridView->clearPath();
     
-    // 固定使用DFS算法
-    QString algorithmName = "DFS";
+    // 获取当前选择的算法
+    AlgorithmType algorithm = m_controlPanel->getCurrentAlgorithm();
+    QString algorithmName = algorithmTypeToString(algorithm);
     qDebug() << "使用算法:" << algorithmName;
     
-    updateStatusMessage(QString("正在使用 %1 算法计算路径...").arg(algorithmName));
+    updateStatusMessage(QString("正在使用 %1 算法异步计算路径...").arg(algorithmName));
     
-    // 使用DFS算法计算路径
-    qDebug() << "=== 开始DFS路径计算 ===";
+    // 设置网格到异步计算器
+    m_asyncCalculator->setGrid(m_gridView->getGrid());
+    
+    // 添加计算任务到异步计算器
+    qDebug() << "=== 开始异步路径计算 ===";
     qDebug() << "起点:" << start << "终点:" << end;
     qDebug() << "网格大小:" << gridWidth << "x" << gridHeight;
+    qDebug() << "算法:" << algorithmName;
     
-    // 使用简单的DFS路径计算
-    calculateSimpleDFSPath(start, end);
-    qDebug() << "=== DFS路径计算完成! ===";
+    int taskId = m_asyncCalculator->addCalculationTask(start, end, algorithm);
+    m_activeTaskAlgorithms[taskId] = algorithm;
+    m_activeTaskNames[taskId] = QString("任务_%1_%2").arg(taskId).arg(algorithmName);
     
-    // 计算完成
-    int pathCount = m_resultList->getAllResults().size();
-    updateStatusMessage(QString("路径计算完成 - 网格%1×%2，找到%3条路径").arg(gridWidth).arg(gridHeight).arg(pathCount));
-    
-    // 显示找到的路径（如果存在）
-    if (pathCount > 0) {
-        PathResult result = m_resultList->getAllResults().first();
-        m_gridView->showPath(result.path());
-    }
-    
-    m_isCalculating = false;
-    m_calculationState = CalculationState::Idle;
-    m_controlPanel->setCalculationState(m_calculationState);
-    showCalculationProgress(false);
+    qDebug() << "添加了计算任务，任务ID:" << taskId;
 }
 
 QVector<QPoint> MainWindow::calculateSimplePath(const QPoint& start, const QPoint& end) {
@@ -1054,12 +1066,24 @@ QString MainWindow::getAlgorithmName(AlgorithmType algorithm) {
 void MainWindow::onPauseCalculation() {
     m_calculationState = CalculationState::Paused;
     m_controlPanel->setCalculationState(m_calculationState);
+    
+    // 暂停异步计算器
+    if (m_asyncCalculator) {
+        m_asyncCalculator->pauseAllCalculations();
+    }
+    
     updateStatusMessage("计算已暂停");
 }
 
 void MainWindow::onResumeCalculation() {
     m_calculationState = CalculationState::Running;
     m_controlPanel->setCalculationState(m_calculationState);
+    
+    // 恢复异步计算器
+    if (m_asyncCalculator) {
+        m_asyncCalculator->resumeAllCalculations();
+    }
+    
     updateStatusMessage("继续计算...");
 }
 
@@ -1068,6 +1092,16 @@ void MainWindow::onStopCalculation() {
         m_shouldStopCalculation = true;
         m_calculationState = CalculationState::Stopped;
         m_controlPanel->setCalculationState(m_calculationState);
+        
+        // 停止异步计算器
+        if (m_asyncCalculator) {
+            m_asyncCalculator->stopAllCalculations();
+        }
+        
+        // 清理活动任务记录
+        m_activeTaskAlgorithms.clear();
+        m_activeTaskNames.clear();
+        
         updateStatusMessage("正在停止计算...");
     }
 }
@@ -1390,7 +1424,7 @@ void MainWindow::hamiltonianDFS(const QPoint& current, const QPoint& end, QVecto
     }
     
     // 如果找到的路径数量过多，可以适当限制（可选）
-    if (allPaths.size() >= 1000) { // 增加到1000条路径限制
+    if (allPaths.size() >= 400) { // 增加到400条路径限制
         return;
     }
     
@@ -1792,4 +1826,113 @@ void MainWindow::onOpenDataFile() {
             QMessageBox::warning(this, "加载失败", "文件中没有找到有效的路径结果数据");
         }
     }
+}
+
+// 异步计算器相关槽函数实现
+
+void MainWindow::onAsyncPathFound(const PathResult& result, int taskId) {
+    qDebug() << "异步计算完成最终结果，任务ID:" << taskId;
+    
+    // 对于哈密顿路径，所有结果已经通过 onAsyncPartialPathFound 处理了
+    // 这里只更新状态，不重复添加结果
+    AlgorithmType algorithm = m_activeTaskAlgorithms.value(taskId, AlgorithmType::DFS);
+    QString algorithmName = algorithmTypeToString(algorithm);
+    
+    if (result.getPath().isEmpty()) {
+        updateStatusMessage(QString("%1 算法计算完成，未找到路径").arg(algorithmName));
+    } else {
+        updateStatusMessage(QString("%1 算法计算完成，共找到 %2 条哈密顿路径")
+                           .arg(algorithmName).arg(m_totalPathCount));
+    }
+}
+
+void MainWindow::onAsyncPartialPathFound(const PathResult& result, int taskId) {
+    qDebug() << "异步计算找到部分路径，任务ID:" << taskId << "路径名称:" << result.id();
+    
+    // 将部分路径（即每个找到的哈密顿路径）添加到结果列表中显示
+    if (m_resultList) {
+        m_resultList->addResult(result);
+        qDebug() << "已添加哈密顿路径到结果列表:" << result.id() << "路径长度:" << result.getPath().size();
+        
+        // 显示第一条路径在网格上
+        if (m_totalPathCount == 0 && m_gridView) {
+            m_gridView->showPath(result.getPath());
+            qDebug() << "在网格上显示第一条哈密顿路径";
+        }
+        
+        m_totalPathCount++;
+    }
+    
+    // 更新状态信息
+    AlgorithmType algorithm = m_activeTaskAlgorithms.value(taskId, AlgorithmType::DFS);
+    QString algorithmName = algorithmTypeToString(algorithm);
+    updateStatusMessage(QString("找到 %1: %2 (总计 %3 条)")
+                       .arg(algorithmName).arg(result.id()).arg(m_totalPathCount));
+}
+
+void MainWindow::onAsyncPathNotFound(int taskId) {
+    qDebug() << "异步计算未找到路径，任务ID:" << taskId;
+    
+    AlgorithmType algorithm = m_activeTaskAlgorithms.value(taskId, AlgorithmType::AStar);
+    QString algorithmName = algorithmTypeToString(algorithm);
+    updateStatusMessage(QString("使用 %1 算法未找到路径 (任务ID: %2)")
+                       .arg(algorithmName).arg(taskId));
+}
+
+void MainWindow::onAsyncCalculationProgress(int taskId, int percentage) {
+    // 更新进度条
+    updateCalculationProgress(percentage);
+    
+    // 可以选择显示更详细的任务进度信息
+    if (percentage % 10 == 0) { // 每10%显示一次
+        AlgorithmType algorithm = m_activeTaskAlgorithms.value(taskId, AlgorithmType::AStar);
+        QString algorithmName = algorithmTypeToString(algorithm);
+        updateStatusMessage(QString("正在使用 %1 算法计算路径... %2% (任务ID: %3)")
+                           .arg(algorithmName).arg(percentage).arg(taskId));
+    }
+}
+
+void MainWindow::onAsyncCalculationStarted(int taskId) {
+    qDebug() << "异步计算开始，任务ID:" << taskId;
+    
+    AlgorithmType algorithm = m_activeTaskAlgorithms.value(taskId, AlgorithmType::AStar);
+    QString algorithmName = algorithmTypeToString(algorithm);
+    updateStatusMessage(QString("开始使用 %1 算法计算路径 (任务ID: %2)")
+                       .arg(algorithmName).arg(taskId));
+}
+
+void MainWindow::onAsyncCalculationFinished(int taskId) {
+    qDebug() << "异步计算完成，任务ID:" << taskId;
+    
+    // 从活动任务中移除
+    m_activeTaskAlgorithms.remove(taskId);
+    m_activeTaskNames.remove(taskId);
+    
+    // 如果没有更多活动任务，标记计算完成
+    if (m_activeTaskAlgorithms.isEmpty()) {
+        m_isCalculating = false;
+        m_calculationState = CalculationState::Idle;
+        m_controlPanel->setCalculationState(m_calculationState);
+        showCalculationProgress(false);
+        
+        int pathCount = m_resultList->getAllResults().size();
+        updateStatusMessage(QString("所有计算任务完成 - 找到 %1 条路径").arg(pathCount));
+    }
+}
+
+void MainWindow::onAsyncAllCalculationsFinished() {
+    qDebug() << "所有异步计算任务完成";
+    
+    // 确保状态正确
+    m_isCalculating = false;
+    m_calculationState = CalculationState::Idle;
+    m_controlPanel->setCalculationState(m_calculationState);
+    showCalculationProgress(false);
+    
+    // 清理活动任务记录
+    m_activeTaskAlgorithms.clear();
+    m_activeTaskNames.clear();
+    
+    int pathCount = m_resultList->getAllResults().size();
+    updateStatusMessage(QString("全部计算完成 - 总共找到 %1 条路径").arg(pathCount));
 }
