@@ -33,8 +33,8 @@ enum class CalculationState {
 
 // 常量定义
 namespace Constants {
-    const int DEFAULT_GRID_WIDTH = 20;
-    const int DEFAULT_GRID_HEIGHT = 15;
+    const int DEFAULT_GRID_WIDTH = 5;
+    const int DEFAULT_GRID_HEIGHT = 5;
     const int MIN_GRID_SIZE = 5;
     const int MAX_GRID_SIZE = 100;
     

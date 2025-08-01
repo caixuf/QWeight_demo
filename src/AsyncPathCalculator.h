@@ -128,6 +128,9 @@ public:
     void stopAllCalculations();
     void stopTask(int taskId);
     
+    // 重新创建工作线程（用于强制停止后恢复）
+    void recreateWorkerThread();
+    
     // 启动和停止结果检查器
     void startResultChecker(int intervalMs = 100);
     void stopResultChecker();
@@ -159,6 +162,9 @@ private:
     
     int m_nextTaskId;
     QMutex m_taskIdMutex;
+    
+    // 保存网格数据用于重新创建线程时设置
+    QVector<QVector<GridPoint>> m_gridData;
     
     // 获取下一个任务ID
     int getNextTaskId();

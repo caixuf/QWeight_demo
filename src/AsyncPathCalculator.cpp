@@ -212,12 +212,22 @@ QVector<QPoint> PathCalculatorWorker::getNeighbors(const QPoint& point) const {
 void PathCalculatorWorker::findHamiltonianPathsDFS(int x, int y, int endX, int endY, int totalPassableCells,
                                                   QVector<QPoint>& currentPath, QVector<QVector<QPoint>>& allPaths,
                                                   QVector<QVector<bool>>& visited, int taskId) {
-    // 检查是否被停止
-    if (m_isStopped || allPaths.size() >= 400) { // 增加限制到400条哈密顿路径
+    // 检查是否被停止 - 在递归开始时立即检查
+    if (m_isStopped || allPaths.size() >= 5000) { // 增加限制到5000条哈密顿路径
         return;
     }
     
-    waitForResume();
+    // 检查暂停状态，但要快速响应停止信号
+    if (m_isPaused && !m_isStopped) {
+        QMutexLocker locker(&m_taskMutex);
+        while (m_isPaused && !m_isStopped) {
+            m_taskCondition.wait(&m_taskMutex, 50); // 减少等待时间到50ms
+        }
+        // 暂停恢复后再次检查停止状态
+        if (m_isStopped) {
+            return;
+        }
+    }
     
     // 标记当前位置为已访问
     visited[x][y] = true;
@@ -256,6 +266,11 @@ void PathCalculatorWorker::findHamiltonianPathsDFS(int x, int y, int endX, int e
         
         // 尝试四个方向
         for (int i = 0; i < 4; i++) {
+            // 在每次循环迭代中检查停止标志
+            if (m_isStopped || allPaths.size() >= 5000) {
+                break; // 立即退出循环
+            }
+            
             int newX = x + dx[i];
             int newY = y + dy[i];
             
@@ -322,10 +337,10 @@ void PathCalculatorWorker::addFinalResult(const CalculationTask& task,
 }
 
 void PathCalculatorWorker::waitForResume() {
-    if (m_isPaused) {
+    if (m_isPaused && !m_isStopped) {
         QMutexLocker locker(&m_taskMutex);
         while (m_isPaused && !m_isStopped) {
-            m_taskCondition.wait(&m_taskMutex, 100);
+            m_taskCondition.wait(&m_taskMutex, 50); // 减少等待时间到50ms，更快响应停止信号
         }
     }
 }
@@ -339,45 +354,38 @@ AsyncPathCalculator::AsyncPathCalculator(QObject* parent)
     , m_resultTimer(nullptr)
     , m_nextTaskId(1)
 {
-    // 创建工作线程
-    m_workerThread = new QThread(this);
-    m_worker = new PathCalculatorWorker();
-    m_worker->moveToThread(m_workerThread);
-    
-    // 连接信号
-    connect(m_worker, &PathCalculatorWorker::taskStarted,
-            this, &AsyncPathCalculator::onTaskStarted);
-    connect(m_worker, &PathCalculatorWorker::taskProgress,
-            this, &AsyncPathCalculator::onTaskProgress);
-    connect(m_worker, &PathCalculatorWorker::taskCompleted,
-            this, &AsyncPathCalculator::onTaskCompleted);
-    connect(m_worker, &PathCalculatorWorker::allTasksCompleted,
-            this, &AsyncPathCalculator::onAllTasksCompleted);
-    
     // 创建结果检查定时器
     m_resultTimer = new QTimer(this);
     connect(m_resultTimer, &QTimer::timeout, this, &AsyncPathCalculator::checkResults);
     
-    // 启动工作线程
-    m_workerThread->start();
+    // 创建工作线程和worker
+    recreateWorkerThread();
 }
 
 AsyncPathCalculator::~AsyncPathCalculator() {
-    stopAllCalculations();
     stopResultChecker();
     
     if (m_workerThread && m_workerThread->isRunning()) {
-        m_workerThread->quit();
-        m_workerThread->wait(3000); // 等待3秒
+        // 强制终止线程
+        m_workerThread->terminate();
+        m_workerThread->wait(1000);
     }
     
     if (m_worker) {
         delete m_worker;
         m_worker = nullptr;
     }
+    
+    if (m_workerThread) {
+        delete m_workerThread;
+        m_workerThread = nullptr;
+    }
 }
 
 void AsyncPathCalculator::setGrid(const QVector<QVector<GridPoint>>& grid) {
+    // 保存网格数据
+    m_gridData = grid;
+    
     if (m_worker) {
         m_worker->setGrid(grid);
     }
@@ -407,9 +415,71 @@ void AsyncPathCalculator::resumeAllCalculations() {
 }
 
 void AsyncPathCalculator::stopAllCalculations() {
-    if (m_worker) {
-        m_worker->stopAllTasks();
+    if (m_worker && m_workerThread) {
+        // 停止结果检查器
+        stopResultChecker();
+        
+        // 激进停止策略：直接终止线程并重新创建
+        qDebug() << "正在强制停止工作线程...";
+        
+        // 立即终止线程
+        if (m_workerThread->isRunning()) {
+            m_workerThread->terminate();
+            m_workerThread->wait(500); // 只等待500ms
+        }
+        
+        // 清理旧的worker和线程
+        if (m_worker) {
+            delete m_worker;
+            m_worker = nullptr;
+        }
+        
+        delete m_workerThread;
+        m_workerThread = nullptr;
+        
+        // 重新创建工作线程和worker
+        recreateWorkerThread();
+        
+        qDebug() << "工作线程已重新创建";
+        
+        // 发出停止完成信号
+        emit allCalculationsFinished();
     }
+}
+
+void AsyncPathCalculator::recreateWorkerThread() {
+    qDebug() << "重新创建工作线程...";
+    
+    // 创建新的工作线程
+    m_workerThread = new QThread(this);
+    
+    // 创建新的worker
+    m_worker = new PathCalculatorWorker();
+    m_worker->moveToThread(m_workerThread);
+    
+    // 连接线程启动信号
+    connect(m_workerThread, &QThread::started,
+            m_worker, &PathCalculatorWorker::processNextTask);
+    
+    // 连接worker信号
+    connect(m_worker, &PathCalculatorWorker::taskStarted,
+            this, &AsyncPathCalculator::onTaskStarted);
+    connect(m_worker, &PathCalculatorWorker::taskProgress,
+            this, &AsyncPathCalculator::onTaskProgress);
+    connect(m_worker, &PathCalculatorWorker::taskCompleted,
+            this, &AsyncPathCalculator::onTaskCompleted);
+    connect(m_worker, &PathCalculatorWorker::allTasksCompleted,
+            this, &AsyncPathCalculator::onAllTasksCompleted);
+    
+    // 如果有网格数据，重新设置
+    if (!m_gridData.isEmpty()) {
+        qDebug() << "重新设置网格数据到新worker";
+        m_worker->setGrid(m_gridData);
+    }
+    
+    // 启动新线程
+    m_workerThread->start();
+    qDebug() << "新工作线程已启动";
 }
 
 void AsyncPathCalculator::stopTask(int taskId) {

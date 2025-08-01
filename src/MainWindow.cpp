@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "LayoutTestWindow.h"
 #include <QApplication>
 #include <QMenuBar>
 #include <QStatusBar>
@@ -19,6 +20,7 @@ MainWindow::MainWindow(QWidget* parent)
     , m_isCalculating(false)
     , m_shouldStopCalculation(false)
     , m_totalPathCount(0)
+    , m_layoutTestWindow(nullptr)
 {
     qDebug() << "MainWindow构造函数开始...";
     
@@ -165,6 +167,9 @@ void MainWindow::setupMenuBar() {
         m_menuBar = menuBar();
         m_fileMenu = m_menuBar->addMenu("文件(&F)");
         
+        // 创建工具菜单
+        QMenu* toolsMenu = m_menuBar->addMenu("工具(&T)");
+        
         // 创建菜单动作
         m_openAction = new QAction("打开数据文件(&O)", this);
         m_openAction->setShortcut(QKeySequence::Open);
@@ -186,6 +191,10 @@ void MainWindow::setupMenuBar() {
         m_exitAction->setShortcut(QKeySequence::Quit);
         m_exitAction->setStatusTip("退出应用程序");
         
+        // 布局测试窗口动作
+        QAction* layoutTestAction = new QAction("布局管理演示(&L)", this);
+        layoutTestAction->setStatusTip("打开Qt布局管理最佳实践演示窗口");
+        
         // 添加到菜单
         m_fileMenu->addAction(m_openAction);
         m_fileMenu->addSeparator();
@@ -195,12 +204,16 @@ void MainWindow::setupMenuBar() {
         m_fileMenu->addSeparator();
         m_fileMenu->addAction(m_exitAction);
         
+        // 添加工具菜单项
+        toolsMenu->addAction(layoutTestAction);
+        
         // 连接信号
         connect(m_openAction, &QAction::triggered, this, &MainWindow::onOpenDataFile);
         connect(m_saveXmlAction, &QAction::triggered, this, &MainWindow::onSaveToXml);
         connect(m_saveSqliteAction, &QAction::triggered, this, &MainWindow::onSaveToSqlite);
         connect(m_saveCsvAction, &QAction::triggered, this, &MainWindow::onSaveToCsv);
         connect(m_exitAction, &QAction::triggered, this, &QWidget::close);
+        connect(layoutTestAction, &QAction::triggered, this, &MainWindow::onOpenLayoutTestWindow);
         
         // 初始状态设置
         updateMenuStates();
@@ -470,6 +483,9 @@ void MainWindow::onStartCalculation() {
     
     // 设置网格到异步计算器
     m_asyncCalculator->setGrid(m_gridView->getGrid());
+    
+    // 确保结果检查器启动
+    m_asyncCalculator->startResultChecker(100);
     
     // 添加计算任务到异步计算器
     qDebug() << "=== 开始异步路径计算 ===";
@@ -1090,19 +1106,25 @@ void MainWindow::onResumeCalculation() {
 void MainWindow::onStopCalculation() {
     if (m_isCalculating) {
         m_shouldStopCalculation = true;
-        m_calculationState = CalculationState::Stopped;
-        m_controlPanel->setCalculationState(m_calculationState);
         
         // 停止异步计算器
         if (m_asyncCalculator) {
             m_asyncCalculator->stopAllCalculations();
         }
         
+        // 重置计算状态，允许重新开始计算
+        m_isCalculating = false;
+        m_calculationState = CalculationState::Idle;  // 改为Idle而不是Stopped
+        m_controlPanel->setCalculationState(m_calculationState);
+        
         // 清理活动任务记录
         m_activeTaskAlgorithms.clear();
         m_activeTaskNames.clear();
         
-        updateStatusMessage("正在停止计算...");
+        // 隐藏进度条
+        showCalculationProgress(false);
+        
+        updateStatusMessage("计算已停止，可以重新开始");
     }
 }
 
@@ -1424,7 +1446,7 @@ void MainWindow::hamiltonianDFS(const QPoint& current, const QPoint& end, QVecto
     }
     
     // 如果找到的路径数量过多，可以适当限制（可选）
-    if (allPaths.size() >= 400) { // 增加到400条路径限制
+    if (allPaths.size() >= 5000) { // 增加到5000条路径限制
         return;
     }
     
@@ -1935,4 +1957,26 @@ void MainWindow::onAsyncAllCalculationsFinished() {
     
     int pathCount = m_resultList->getAllResults().size();
     updateStatusMessage(QString("全部计算完成 - 总共找到 %1 条路径").arg(pathCount));
+}
+
+void MainWindow::onOpenLayoutTestWindow() {
+    qDebug() << "打开布局管理演示窗口";
+    
+    // 如果窗口还没有创建或已经被删除，创建新的窗口
+    if (!m_layoutTestWindow) {
+        m_layoutTestWindow = new LayoutTestWindow(this);
+        
+        // 连接窗口关闭信号，确保指针被重置
+        connect(m_layoutTestWindow, &QObject::destroyed, this, [this]() {
+            m_layoutTestWindow = nullptr;
+            qDebug() << "布局测试窗口已关闭";
+        });
+    }
+    
+    // 显示窗口
+    m_layoutTestWindow->show();
+    m_layoutTestWindow->raise();
+    m_layoutTestWindow->activateWindow();
+    
+    updateStatusMessage("已打开Qt布局管理最佳实践演示窗口");
 }

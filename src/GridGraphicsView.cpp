@@ -13,10 +13,10 @@
 GridGraphicsView::GridGraphicsView(QWidget* parent)
     : QGraphicsView(parent)
     , m_scene(nullptr)
-    , m_gridWidth(20)  // 直接使用数值
-    , m_gridHeight(15) // 直接使用数值
-    , m_startPoint(-1, -1)
-    , m_endPoint(-1, -1)
+    , m_gridWidth(5)  // 直接使用数值
+    , m_gridHeight(5) // 直接使用数值
+    , m_startPoint(0, 0)
+    , m_endPoint(1, 1)
     , m_scaleFactor(1.0)
 {
     qDebug() << "GridGraphicsView构造函数开始...";

@@ -25,6 +25,7 @@ SOURCES += \
     src/GridGraphicsView.cpp \
     src/GridPoint.cpp \
     src/HistoryManager.cpp \
+    src/LayoutTestWindow.cpp \
     src/MainWindow.cpp \
     src/PathCalculator.cpp \
     src/PathResult.cpp \
@@ -42,6 +43,7 @@ HEADERS += \
     src/GridGraphicsView.h \
     src/GridPoint.h \
     src/HistoryManager.h \
+    src/LayoutTestWindow.h \
     src/MainWindow.h \
     src/PathCalculator.h \
     src/PathResult.h \

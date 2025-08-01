@@ -24,6 +24,9 @@
 #include <QFileDialog>
 #include <QMessageBox>
 
+// 前向声明
+class LayoutTestWindow;
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -85,6 +88,9 @@ private slots:
     void onAsyncCalculationStarted(int taskId);
     void onAsyncCalculationFinished(int taskId);
     void onAsyncAllCalculationsFinished();
+    
+    // 布局测试窗口
+    void onOpenLayoutTestWindow();
 
 private:
     void setupUI();
@@ -190,12 +196,15 @@ private:
     bool m_isCalculating;
     bool m_shouldStopCalculation;
     int m_totalPathCount;  // 总路径计数器
-    static const int MAX_PATHS = 400;  // 哈密顿路径数量限制增加到400
+    static const int MAX_PATHS = 5000;  // 哈密顿路径数量限制增加到5000
     
     // 批量处理队列系统
     QQueue<PathResult> m_pathQueue;  // 路径结果队列
     QMutex m_queueMutex;  // 队列访问锁
     QTimer* m_batchTimer;  // 批量处理定时器
+    
+    // 布局测试窗口
+    LayoutTestWindow* m_layoutTestWindow;
 };
 
 #endif // MAINWINDOW_H

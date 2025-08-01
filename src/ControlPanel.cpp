@@ -226,7 +226,7 @@ void ControlPanel::updateCalculationButtons(CalculationState state) {
         case CalculationState::Completed:
         case CalculationState::Stopped:
             m_startButton->setEnabled(true);
-            m_pauseResumeButton->setEnabled(false);
+            m_pauseResumeButton->setEnabled(false);  // 禁用暂停按钮
             m_pauseResumeButton->setText("暂停");
             m_stopButton->setEnabled(false);
             m_resetButton->setEnabled(true);
@@ -234,7 +234,7 @@ void ControlPanel::updateCalculationButtons(CalculationState state) {
             
         case CalculationState::Running:
             m_startButton->setEnabled(false);
-            m_pauseResumeButton->setEnabled(true);
+            m_pauseResumeButton->setEnabled(false);  // 禁用暂停按钮
             m_pauseResumeButton->setText("暂停");
             m_stopButton->setEnabled(true);
             m_resetButton->setEnabled(false);
@@ -242,7 +242,7 @@ void ControlPanel::updateCalculationButtons(CalculationState state) {
             
         case CalculationState::Paused:
             m_startButton->setEnabled(false);
-            m_pauseResumeButton->setEnabled(true);
+            m_pauseResumeButton->setEnabled(false);  // 禁用暂停按钮
             m_pauseResumeButton->setText("继续");
             m_stopButton->setEnabled(true);
             m_resetButton->setEnabled(false);
